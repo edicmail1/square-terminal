@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: square-terminal
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SQUARE_ACCESS_TOKEN
+        sync: false
+      - key: SQUARE_APPLICATION_ID
+        sync: false
+      - key: SQUARE_LOCATION_ID
+        sync: false
+      - key: SQUARE_ENVIRONMENT
+        value: production
