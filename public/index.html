@@ -179,6 +179,10 @@
       <input type="text" id="m-note" placeholder="Invoice #123, service description..." />
     </div>
     <div class="field">
+      <label>Customer Email (for receipt)</label>
+      <input type="email" id="m-email" placeholder="customer@example.com" />
+    </div>
+    <div class="field">
       <label>ZIP Code (recommended)</label>
       <input type="text" id="m-zip" placeholder="10001" maxlength="10" style="max-width:160px" />
     </div>
@@ -238,6 +242,7 @@ async function chargeCard() {
   const amount = document.getElementById('m-amount').value;
   const name = document.getElementById('m-name').value;
   const note = document.getElementById('m-note').value;
+  const email = document.getElementById('m-email').value;
   const zip = document.getElementById('m-zip').value;
   const btn = document.getElementById('btn-charge');
   const result = document.getElementById('result-manual');
@@ -267,6 +272,7 @@ async function chargeCard() {
         amount,
         currency: 'USD',
         note: [name, note].filter(Boolean).join(' — '),
+        buyerEmail: email || undefined,
       }),
     }).then(r => r.json());
 

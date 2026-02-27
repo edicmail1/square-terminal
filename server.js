@@ -14,7 +14,7 @@ const client = new Client({
 
 // Charge card manually (manual entry)
 app.post('/api/charge', async (req, res) => {
-  const { sourceId, amount, currency, note, customerName } = req.body;
+  const { sourceId, amount, currency, note, customerName, buyerEmail } = req.body;
 
   if (!sourceId || !amount) {
     return res.status(400).json({ error: 'sourceId and amount are required' });
@@ -32,7 +32,7 @@ app.post('/api/charge', async (req, res) => {
       },
       locationId: process.env.SQUARE_LOCATION_ID,
       note: note || '',
-      buyerEmailAddress: undefined,
+      buyerEmailAddress: buyerEmail || undefined,
     });
 
     const payment = response.result.payment;
