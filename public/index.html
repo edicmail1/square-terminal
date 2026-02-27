@@ -179,6 +179,10 @@
       <input type="text" id="m-note" placeholder="Invoice #123, service description..." />
     </div>
     <div class="field">
+      <label>ZIP Code (recommended)</label>
+      <input type="text" id="m-zip" placeholder="10001" maxlength="10" style="max-width:160px" />
+    </div>
+    <div class="field">
       <label>Card</label>
       <div id="card-container"></div>
     </div>
@@ -234,6 +238,7 @@ async function chargeCard() {
   const amount = document.getElementById('m-amount').value;
   const name = document.getElementById('m-name').value;
   const note = document.getElementById('m-note').value;
+  const zip = document.getElementById('m-zip').value;
   const btn = document.getElementById('btn-charge');
   const result = document.getElementById('result-manual');
 
@@ -247,7 +252,9 @@ async function chargeCard() {
   result.style.display = 'none';
 
   try {
-    const tokenResult = await card.tokenize();
+    const tokenResult = await card.tokenize({
+      billingContact: zip ? { postalCode: zip } : undefined,
+    });
     if (tokenResult.status !== 'OK') {
       throw new Error(tokenResult.errors?.map(e => e.message).join(', ') || 'Card tokenization failed');
     }
