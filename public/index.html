@@ -257,18 +257,29 @@ async function chargeCard() {
   result.style.display = 'none';
 
   try {
-    const tokenResult = await card.tokenize({
-      billingContact: zip ? { postalCode: zip } : undefined,
-    });
+    const tokenResult = await card.tokenize();
     if (tokenResult.status !== 'OK') {
       throw new Error(tokenResult.errors?.map(e => e.message).join(', ') || 'Card tokenization failed');
     }
+
+    // Verify buyer (required for card-not-present / keyed-in)
+    const payments = Square.payments(appId, locId);
+    const verificationDetails = {
+      intent: 'CHARGE',
+      customerInitiated: true,
+      sellerKeyedIn: true,
+      amount: parseFloat(amount).toFixed(2),
+      currencyCode: 'USD',
+      billingContact: zip ? { postalCode: zip } : undefined,
+    };
+    const verifyResult = await payments.verifyBuyer(tokenResult.token, verificationDetails);
 
     const res = await fetch('/api/charge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceId: tokenResult.token,
+        verificationToken: verifyResult?.token || undefined,
         amount,
         currency: 'USD',
         note: [name, note].filter(Boolean).join(' — '),
