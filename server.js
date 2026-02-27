@@ -41,7 +41,10 @@ app.post('/api/charge', async (req, res) => {
       success: true,
       paymentId: payment.id,
       status: payment.status,
-      amount: payment.amountMoney,
+      amount: {
+        amount: payment.amountMoney?.amount?.toString(),
+        currency: payment.amountMoney?.currency,
+      },
       receiptUrl: payment.receiptUrl,
     });
   } catch (err) {
