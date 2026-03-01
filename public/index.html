@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Payment Terminal</title>
-  <script src="https://web.squarecdn.com/v1/square.js"></script>
+  <!-- Square.js загружается только при открытии Manual Entry -->
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -340,8 +340,8 @@
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('manual')">Manual Entry</div>
-    <div class="tab" onclick="switchTab('link')">Payment Link</div>
+    <div class="tab" onclick="switchTab('manual')">Manual Entry</div>
+    <div class="tab active" onclick="switchTab('link')">Payment Link</div>
     <div class="tab" onclick="switchTab('history')">📋 History</div>
     <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
     <div class="tab" onclick="switchTab('report')">📊 Report</div>
@@ -349,7 +349,7 @@
   </div>
 
   <!-- MANUAL ENTRY -->
-  <div class="panel active" id="panel-manual">
+  <div class="panel" id="panel-manual">
     <div class="field">
       <label>Amount <span class="req">*</span></label>
       <div class="amount-wrap">
@@ -386,7 +386,7 @@
   </div>
 
   <!-- PAYMENT LINK -->
-  <div class="panel" id="panel-link">
+  <div class="panel active" id="panel-link">
     <div class="field">
       <label>Location <span class="req">*</span></label>
       <select id="l-location">
@@ -639,6 +639,7 @@
 let card;
 let appId, locId;
 let profilesData = { activeId: null, profiles: [] };
+let squareJsLoaded = false;
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 async function checkAuth() {
@@ -723,18 +724,29 @@ function checkOAuthResult() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  // Check OAuth result in URL
   checkOAuthResult();
-  // Check if OAuth is configured
   const oauthCfg = await fetch('/api/oauth-config').then(r => r.json());
   if (oauthCfg.enabled) {
     document.getElementById('oauth-connect-block').style.display = 'block';
   }
   await loadProfiles();
-  await initSquare();
+  await loadLinkLocations();
+  // Square.js NOT loaded here — only when user opens Manual Entry
+}
+
+function loadSquareJs() {
+  return new Promise((resolve, reject) => {
+    if (squareJsLoaded) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://web.squarecdn.com/v1/square.js';
+    script.onload = () => { squareJsLoaded = true; resolve(); };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
 }
 
 async function initSquare() {
+  await loadSquareJs();
   const cfg = await fetch('/api/config').then(r => r.json());
   appId = cfg.applicationId;
   locId = cfg.locationId;
@@ -856,7 +868,10 @@ async function switchProfile(id) {
     renderProfileList();
     updateLimitInfo();
     document.getElementById('l-location').dataset.loaded = ''; // reset location cache
-    await initSquare();
+    // Re-init Square.js only if Manual Entry tab is currently open
+    if (document.getElementById('panel-manual').classList.contains('active')) {
+      await initSquare();
+    }
   }
 }
 
@@ -979,6 +994,7 @@ function switchTab(tab) {
   ['manual','link','history','locations','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
+  if (tab === 'manual')    initSquare();   // loads Square.js only on first click
   if (tab === 'link')      loadLinkLocations();
   if (tab === 'history')   loadHistory();
   if (tab === 'locations') loadLocations();
