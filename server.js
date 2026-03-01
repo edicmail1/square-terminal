@@ -316,6 +316,75 @@ app.get('/api/profiles', requireAuth, (req, res) => {
   });
 });
 
+// GET real payments from Square for active location
+app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+  const locationId = req.query.location_id || profile.locationId;
+  const limit      = Math.min(parseInt(req.query.limit) || 50, 200);
+  const cursor     = req.query.cursor || null;
+  const begin      = req.query.begin_time || null;
+  const end        = req.query.end_time   || null;
+
+  const params = new URLSearchParams({ location_id: locationId, limit: String(limit), sort_order: 'DESC' });
+  if (cursor) params.set('cursor', cursor);
+  if (begin)  params.set('begin_time', begin);
+  if (end)    params.set('end_time', end);
+
+  try {
+    const r = await squareGet(profile.accessToken, `/v2/payments?${params}`);
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+
+    const payments = (r.body.payments || []).map(p => {
+      const card = p.card_details?.card || {};
+      const cd   = p.card_details || {};
+      return {
+        id:            p.id,
+        status:        p.status,
+        amount:        p.amount_money,
+        tip:           p.tip_money || null,
+        totalMoney:    p.total_money || null,
+        currency:      p.amount_money?.currency,
+        note:          p.note || '',
+        orderId:       p.order_id || null,
+        receiptUrl:    p.receipt_url || null,
+        receiptNumber: p.receipt_number || null,
+        locationId:    p.location_id,
+        createdAt:     p.created_at,
+        updatedAt:     p.updated_at,
+        // Card details
+        card: {
+          brand:          card.card_brand || null,
+          last4:          card.last_4 || null,
+          expMonth:       card.exp_month || null,
+          expYear:        card.exp_year || null,
+          fingerprint:    card.fingerprint || null,
+          cardId:         card.id || null,
+          enabled:        card.enabled ?? null,
+          cardholderName: card.cardholder_name || null,
+          binRange:       card.bin || null,
+        },
+        entryMethod:    cd.entry_method || null,
+        cvvStatus:      cd.cvv_status || null,
+        avsStatus:      cd.avs_status || null,
+        authResultCode: cd.auth_result_code || null,
+        // Issuer alerts
+        issuerAlert:           p.card_details?.errors?.[0]?.detail || null,
+        issuerAlerts:          p.card_details?.errors || [],
+        issuerAlertsUpdatedAt: p.updated_at || null,
+        // Risk
+        riskLevel:     p.risk_evaluation?.risk_level || null,
+        // Refunds
+        refundedMoney: p.refunded_money || null,
+        processingFee: p.processing_fee?.[0]?.amount_money || null,
+      };
+    });
+
+    res.json({ payments, cursor: r.body.cursor || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET bank accounts for a profile
 app.get('/api/profiles/:id/bank-accounts', requireAuth, async (req, res) => {
   const profile = store.profiles.find(p => p.id === req.params.id);

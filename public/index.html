@@ -235,6 +235,17 @@
     .status-dot.active { background: #10b981; }
     .status-dot.inactive { background: #ef4444; }
 
+    /* History */
+    .tx-item { padding: 11px 13px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; }
+    .tx-item.failed { border-color: #fca5a5; background: #fef2f2; }
+    .tx-item.completed { border-color: #6ee7b7; background: #f0fdf9; }
+    .tx-details { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; font-size: 11px; }
+    .tx-detail label { color: #9ca3af; display: block; }
+    .tx-detail span { color: #374151; font-weight: 500; word-break: break-all; }
+    .tx-detail.full { grid-column: span 2; }
+    .tx-alert { margin-top: 6px; padding: 6px 10px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 11px; color: #991b1b; }
+    .tx-toggle { font-size: 11px; color: #006AFF; cursor: pointer; margin-top: 6px; display: inline-block; }
+
     /* Report */
     .report-toolbar { margin-bottom: 16px; }
     .period-btns { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -434,8 +445,15 @@
 
   <!-- HISTORY -->
   <div class="panel" id="panel-history">
-    <div class="tx-list" id="tx-list">
-      <div class="empty-state">Loading...</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+      <select id="history-location" onchange="loadHistory()" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none">
+        <option value="">Loading locations...</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadHistory()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:8px 14px">↻ Refresh</button>
+    </div>
+    <div class="tx-list" id="tx-list"><div class="empty-state">Loading...</div></div>
+    <div id="history-load-more" style="display:none;margin-top:10px">
+      <button class="btn btn-sm" onclick="loadMoreHistory()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;width:100%;padding:10px">Load more...</button>
     </div>
   </div>
 
@@ -1043,41 +1061,114 @@ async function deleteProfile(id) {
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
+let historyCursor = null;
+
+async function initHistoryLocations() {
+  const sel = document.getElementById('history-location');
+  if (sel.dataset.loaded === profilesData.activeId) return;
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/locations`).then(r => r.json());
+    const locs = (data.locations || []).filter(l => l.status === 'ACTIVE');
+    const active = profilesData.profiles.find(p => p.id === profilesData.activeId);
+    sel.innerHTML = locs.map(l =>
+      `<option value="${l.id}" ${l.id === active?.locationId ? 'selected' : ''}>${l.name}</option>`
+    ).join('');
+    sel.dataset.loaded = profilesData.activeId;
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load</option>';
+  }
+}
+
 async function loadHistory() {
-  const activeId = profilesData.activeId;
-  if (!activeId) return;
-  const data = await fetch(`/api/profiles/${activeId}/transactions`).then(r => r.json());
+  historyCursor = null;
+  document.getElementById('tx-list').innerHTML = '<div class="empty-state">Loading from Square...</div>';
+  document.getElementById('history-load-more').style.display = 'none';
+  await initHistoryLocations();
+  await fetchHistory(false);
+}
+
+async function loadMoreHistory() {
+  await fetchHistory(true);
+}
+
+async function fetchHistory(append) {
+  const activeId   = profilesData.activeId;
+  const locationId = document.getElementById('history-location').value;
+  if (!activeId || !locationId) return;
+
+  const params = new URLSearchParams({ location_id: locationId, limit: '50' });
+  if (append && historyCursor) params.set('cursor', historyCursor);
+
+  const data = await fetch(`/api/profiles/${activeId}/payments?${params}`).then(r => r.json());
   const el = document.getElementById('tx-list');
-  const txs = data.transactions || [];
-  if (!txs.length) {
-    el.innerHTML = '<div class="empty-state">📭 No transactions yet for this business</div>';
+
+  if (data.error) {
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}<br><small>Возможно нужен PAYMENTS_READ permission</small></div>`;
     return;
   }
-  el.innerHTML = txs.map(tx => {
-    const isFail = tx.status === 'FAILED';
-    const isLink = tx.type === 'link';
-    const badgeClass = isFail ? 'badge-fail' : isLink ? 'badge-link' : 'badge-ok';
-    const badgeText = isFail ? '✗ Failed' : isLink ? '🔗 Link' : '✓ Charged';
-    const itemClass = isFail ? 'failed' : isLink ? 'link-created' : '';
-    const date = new Date(tx.createdAt).toLocaleString();
-    const receiptHtml = tx.receiptUrl ? `<a class="tx-receipt" href="${tx.receiptUrl}" target="_blank">Receipt ↗</a>` : '';
-    const linkHtml = tx.url ? `<a class="tx-receipt" href="${tx.url}" target="_blank">Link ↗</a>` : '';
-    const errorHtml = tx.error ? `<div class="tx-note" style="color:#ef4444">${tx.error}</div>` : '';
+
+  const payments = data.payments || [];
+  historyCursor = data.cursor || null;
+  document.getElementById('history-load-more').style.display = historyCursor ? 'block' : 'none';
+
+  if (!payments.length && !append) {
+    el.innerHTML = '<div class="empty-state">📭 Платежей не найдено</div>';
+    return;
+  }
+
+  const html = payments.map(p => {
+    const isOk   = p.status === 'COMPLETED';
+    const isFail = p.status === 'FAILED' || p.status === 'CANCELED';
+    const amt    = ((p.amount?.amount || 0) / 100).toFixed(2);
+    const fee    = p.processingFee ? `-$${(p.processingFee.amount / 100).toFixed(2)}` : '—';
+    const refund = p.refundedMoney ? `-$${(p.refundedMoney.amount / 100).toFixed(2)}` : '—';
+    const date   = new Date(p.createdAt).toLocaleString('ru-RU');
+    const statusColor = isOk ? '#10b981' : isFail ? '#ef4444' : '#f59e0b';
+    const itemClass = isOk ? 'completed' : isFail ? 'failed' : '';
+
+    const riskColor = { LOW: '#10b981', MODERATE: '#f59e0b', HIGH: '#ef4444' }[p.riskLevel] || '#9ca3af';
+
     return `
-      <div class="tx-item ${itemClass}">
-        <div class="tx-row">
-          <div class="tx-amount">$${tx.amount.toFixed(2)} <span style="font-size:12px;font-weight:400;color:#6b7280">${tx.currency}</span></div>
-          <span class="tx-badge ${badgeClass}">${badgeText}</span>
-        </div>
-        ${tx.note ? `<div class="tx-note">${tx.note}</div>` : ''}
-        ${tx.buyerEmail ? `<div class="tx-note">${tx.buyerEmail}</div>` : ''}
-        ${errorHtml}
-        <div class="tx-row" style="margin-top:4px">
-          <div class="tx-date">${date}</div>
-          ${receiptHtml}${linkHtml}
-        </div>
-      </div>`;
+    <div class="tx-item ${itemClass}">
+      <div class="tx-row">
+        <div class="tx-amount">$${amt} <span style="font-size:11px;font-weight:400;color:#6b7280">${p.currency || ''}</span></div>
+        <span style="font-size:11px;font-weight:700;color:${statusColor}">${p.status}</span>
+      </div>
+      ${p.note ? `<div class="tx-note" style="margin-top:3px">${p.note}</div>` : ''}
+      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}</div>
+
+      <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
+      <div class="tx-details" style="display:none">
+        <div class="tx-detail"><label>Payment ID</label><span>${p.id}</span></div>
+        <div class="tx-detail"><label>Entry Method</label><span>${p.entryMethod || '—'}</span></div>
+        <div class="tx-detail"><label>Card Brand</label><span>${p.card?.brand || '—'}</span></div>
+        <div class="tx-detail"><label>Last 4</label><span>${p.card?.last4 || '—'}</span></div>
+        <div class="tx-detail"><label>Exp</label><span>${p.card?.expMonth ? p.card.expMonth+'/'+p.card.expYear : '—'}</span></div>
+        <div class="tx-detail"><label>Cardholder</label><span>${p.card?.cardholderName || '—'}</span></div>
+        <div class="tx-detail full"><label>Fingerprint</label><span>${p.card?.fingerprint || '—'}</span></div>
+        <div class="tx-detail"><label>Card ID</label><span>${p.card?.cardId || '—'}</span></div>
+        <div class="tx-detail"><label>Enabled</label><span>${p.card?.enabled === null ? '—' : p.card?.enabled ? '✅ Yes' : '❌ No'}</span></div>
+        <div class="tx-detail"><label>CVV Status</label><span>${p.cvvStatus || '—'}</span></div>
+        <div class="tx-detail"><label>AVS Status</label><span>${p.avsStatus || '—'}</span></div>
+        <div class="tx-detail"><label>Auth Code</label><span>${p.authResultCode || '—'}</span></div>
+        <div class="tx-detail"><label>Risk Level</label><span style="color:${riskColor};font-weight:700">${p.riskLevel || '—'}</span></div>
+        <div class="tx-detail"><label>Processing Fee</label><span>${fee}</span></div>
+        <div class="tx-detail"><label>Refunded</label><span>${refund}</span></div>
+        ${p.tip ? `<div class="tx-detail"><label>Tip</label><span>$${(p.tip.amount/100).toFixed(2)}</span></div>` : ''}
+        <div class="tx-detail"><label>Order ID</label><span>${p.orderId || '—'}</span></div>
+        <div class="tx-detail"><label>Receipt #</label><span>${p.receiptNumber || '—'}</span></div>
+        <div class="tx-detail"><label>Updated</label><span>${p.updatedAt ? new Date(p.updatedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        ${p.issuerAlerts?.length ? `<div class="tx-detail full"><div class="tx-alert">⚠️ Issuer Alert: ${p.issuerAlerts.map(a=>a.detail||a).join('; ')}<br><span style="color:#9ca3af">${p.issuerAlertsUpdatedAt ? new Date(p.issuerAlertsUpdatedAt).toLocaleString('ru-RU') : ''}</span></div></div>` : ''}
+      </div>
+    </div>`;
   }).join('');
+
+  if (append) {
+    el.innerHTML += html;
+  } else {
+    el.innerHTML = html;
+  }
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
