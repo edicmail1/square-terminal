@@ -205,6 +205,23 @@
     }
     .merchant-info.loading { color: #9ca3af; font-style: italic; }
     .merchant-info.error-state { color: #ef4444; }
+    .bank-info {
+      padding: 10px 12px; border-top: 1px solid #e5e7eb;
+      background: #f0fdf4; font-size: 12px;
+    }
+    .bank-account {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 4px 16px; margin-top: 6px;
+    }
+    .bank-account + .bank-account { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d1fae5; }
+    .bank-field label { color: #6b7280; font-size: 11px; display: block; }
+    .bank-field span { color: #111827; font-weight: 600; font-size: 12px; font-family: monospace; }
+    .bank-status-badge {
+      font-size: 10px; padding: 1px 7px; border-radius: 20px; font-weight: 600;
+    }
+    .bank-verified { background: #d1fae5; color: #065f46; }
+    .bank-pending  { background: #fef9c3; color: #854d0e; }
+    .bank-disabled { background: #fee2e2; color: #991b1b; }
     .merchant-grid {
       display: grid; grid-template-columns: 1fr 1fr;
       gap: 6px 16px; margin-top: 4px;
@@ -823,21 +840,24 @@ async function loadMerchantInfo(profileId) {
   const el = document.getElementById(`merchant-${profileId}`);
   if (!el) return;
   try {
-    const m = await fetch(`/api/profiles/${profileId}/merchant`).then(r => r.json());
+    const [m, locData, bankData] = await Promise.all([
+      fetch(`/api/profiles/${profileId}/merchant`).then(r => r.json()),
+      fetch(`/api/profiles/${profileId}/locations`).then(r => r.json()),
+      fetch(`/api/profiles/${profileId}/bank-accounts`).then(r => r.json()),
+    ]);
+
     if (m.error) {
       el.className = 'merchant-info error-state';
       el.innerHTML = `⚠️ ${m.error}`;
       return;
     }
+
     const isActive = m.status === 'ACTIVE';
     const statusDot = `<span class="status-dot ${isActive ? 'active' : 'inactive'}"></span>`;
-    // Check payment capability via locations
-    let canPay = null;
-    try {
-      const locData = await fetch(`/api/profiles/${profileId}/locations`).then(r => r.json());
-      const activeLocs = (locData.locations || []).filter(l => l.status === 'ACTIVE');
-      canPay = activeLocs.some(l => l.canProcessPayments);
-    } catch {}
+    const activeLocs = (locData.locations || []).filter(l => l.status === 'ACTIVE');
+    const canPay = activeLocs.some(l => l.canProcessPayments);
+
+    // Merchant info block
     el.className = 'merchant-info';
     el.innerHTML = `
       <div class="merchant-grid">
@@ -865,12 +885,48 @@ async function loadMerchantInfo(profileId) {
           <label>Merchant ID</label>
           <span style="font-size:10px">${m.id || '—'}</span>
         </div>
-        ${canPay !== null ? `
         <div class="merchant-field" style="grid-column:span 2">
           <label>Payment Capability</label>
           <span style="font-weight:600;${canPay ? 'color:#10b981' : 'color:#ef4444'}">${canPay ? '✅ Может принимать платежи' : '❌ Платежи недоступны'}</span>
-        </div>` : ''}
+        </div>
       </div>`;
+
+    // Bank accounts block
+    const accounts = bankData.accounts || [];
+    if (accounts.length > 0) {
+      const bankEl = document.createElement('div');
+      bankEl.className = 'bank-info';
+      bankEl.innerHTML = `<strong>🏦 Square Checking / Bank Account</strong>` +
+        accounts.map(a => {
+          const statusClass = a.status === 'VERIFIED' ? 'bank-verified' : a.status === 'VERIFICATION_IN_PROGRESS' ? 'bank-pending' : 'bank-disabled';
+          const statusLabel = a.status === 'VERIFIED' ? 'Verified' : a.status === 'VERIFICATION_IN_PROGRESS' ? 'Pending' : 'Disabled';
+          return `
+          <div class="bank-account">
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Bank</label>
+              <span style="font-family:inherit">${a.bankName || '—'} &nbsp;<span class="bank-status-badge ${statusClass}">${statusLabel}</span></span>
+            </div>
+            <div class="bank-field">
+              <label>Routing Number</label>
+              <span>${a.routingNumber || '—'}</span>
+            </div>
+            <div class="bank-field">
+              <label>Account</label>
+              <span>••••${a.accountNumberSuffix || '—'}</span>
+            </div>
+            <div class="bank-field">
+              <label>Type</label>
+              <span style="font-family:inherit">${a.accountType || '—'}</span>
+            </div>
+            <div class="bank-field">
+              <label>Deposits / Withdrawals</label>
+              <span style="font-family:inherit">${a.creditable ? '✅' : '❌'} / ${a.debitable ? '✅' : '❌'}</span>
+            </div>
+          </div>`;
+        }).join('');
+      el.parentNode.insertBefore(bankEl, el.nextSibling);
+    }
+
   } catch (e) {
     el.className = 'merchant-info error-state';
     el.innerHTML = `⚠️ Failed to load`;

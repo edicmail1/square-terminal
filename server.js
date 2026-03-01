@@ -316,6 +316,27 @@ app.get('/api/profiles', requireAuth, (req, res) => {
   });
 });
 
+// GET bank accounts for a profile
+app.get('/api/profiles/:id/bank-accounts', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  try {
+    const r = await squareGet(profile.accessToken, '/v2/bank-accounts');
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+    const accounts = (r.body.bank_accounts || []).map(a => ({
+      id: a.id,
+      accountType: a.account_type,
+      accountNumberSuffix: a.account_number_suffix,
+      routingNumber: a.routing_number,
+      bankName: a.bank_name,
+      status: a.status,
+      creditable: a.creditable,
+      debitable: a.debitable,
+    }));
+    res.json({ accounts });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/profiles/:id/merchant', requireAuth, async (req, res) => {
   const profile = store.profiles.find(p => p.id === req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
