@@ -96,6 +96,48 @@ function addTransaction(profileId, tx) {
   if (profile.transactions.length > 50) profile.transactions = profile.transactions.slice(0, 50);
 }
 
+// ── Square API proxy helper ───────────────────────────────────────────────────
+function squareGet(accessToken, path) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'connect.squareup.com',
+      path,
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Square-Version': '2024-01-17',
+        'Content-Type': 'application/json',
+      },
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+// GET merchant info for a profile
+app.get('/api/profiles/:id/merchant', async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  if (!profile.accessToken) return res.status(400).json({ error: 'No access token' });
+
+  try {
+    const result = await squareGet(profile.accessToken, '/v2/merchants/me');
+    if (result.status !== 200) {
+      return res.status(result.status).json({ error: result.body?.errors?.[0]?.detail || 'Square API error' });
+    }
+    res.json(result.body.merchant);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Config ────────────────────────────────────────────────────────────────────
 app.get('/api/config', (req, res) => {
   const p = activeProfile();

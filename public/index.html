@@ -163,6 +163,24 @@
     .profile-card-sub { font-size: 11px; color: #6b7280; }
     .badge-active { font-size: 11px; background: #006AFF; color: white; padding: 2px 8px; border-radius: 20px; }
     .profile-card-actions { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid #e5e7eb; }
+    .merchant-info {
+      padding: 10px 12px; border-top: 1px solid #e5e7eb;
+      background: #f9fafb; font-size: 12px;
+    }
+    .merchant-info.loading { color: #9ca3af; font-style: italic; }
+    .merchant-info.error-state { color: #ef4444; }
+    .merchant-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 6px 16px; margin-top: 4px;
+    }
+    .merchant-field label { color: #9ca3af; font-size: 11px; display: block; }
+    .merchant-field span { color: #111827; font-weight: 500; font-size: 12px; }
+    .status-dot {
+      display: inline-block; width: 7px; height: 7px;
+      border-radius: 50%; margin-right: 4px;
+    }
+    .status-dot.active { background: #10b981; }
+    .status-dot.inactive { background: #ef4444; }
 
     .divider { border: none; border-top: 1px solid #e5e7eb; margin: 18px 0; }
     .section-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -357,18 +375,18 @@ function renderProfileList() {
     return;
   }
   el.innerHTML = profilesData.profiles.map(p => `
-    <div class="profile-card ${p.active ? 'is-active' : ''}">
+    <div class="profile-card ${p.active ? 'is-active' : ''}" id="card-${p.id}">
       <div class="profile-card-header">
         <div style="flex:1">
           <div class="profile-card-name">${p.name}</div>
           <div class="profile-card-sub">
-            ${p.applicationId}
-            ${p.maxAmount ? ` · Limit: $${p.maxAmount.toFixed(2)}` : ''}
-            · ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
+            ${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
+            ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
           </div>
         </div>
         ${p.active ? '<span class="badge-active">Active</span>' : ''}
       </div>
+      <div class="merchant-info loading" id="merchant-${p.id}">Loading merchant info...</div>
       <div class="profile-card-actions">
         ${!p.active ? `<button class="btn btn-primary btn-sm" onclick="switchProfile('${p.id}')">Activate</button>` : ''}
         <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
@@ -376,6 +394,55 @@ function renderProfileList() {
       </div>
     </div>
   `).join('');
+
+  // Load merchant info for all profiles
+  profilesData.profiles.forEach(p => loadMerchantInfo(p.id));
+}
+
+async function loadMerchantInfo(profileId) {
+  const el = document.getElementById(`merchant-${profileId}`);
+  if (!el) return;
+  try {
+    const m = await fetch(`/api/profiles/${profileId}/merchant`).then(r => r.json());
+    if (m.error) {
+      el.className = 'merchant-info error-state';
+      el.innerHTML = `⚠️ ${m.error}`;
+      return;
+    }
+    const isActive = m.status === 'ACTIVE';
+    const statusDot = `<span class="status-dot ${isActive ? 'active' : 'inactive'}"></span>`;
+    el.className = 'merchant-info';
+    el.innerHTML = `
+      <div class="merchant-grid">
+        <div class="merchant-field">
+          <label>Business Name</label>
+          <span>${m.business_name || m.company_name || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Status</label>
+          <span>${statusDot}${m.status || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Country</label>
+          <span>${m.country || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Currency</label>
+          <span>${m.currency || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Language</label>
+          <span>${m.language_code || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Merchant ID</label>
+          <span style="font-size:10px">${m.id || '—'}</span>
+        </div>
+      </div>`;
+  } catch (e) {
+    el.className = 'merchant-info error-state';
+    el.innerHTML = `⚠️ Failed to load`;
+  }
 }
 
 async function switchProfile(id) {
