@@ -805,7 +805,7 @@ function renderProfileList() {
       <div class="profile-card-actions">
         ${!p.active ? `<button class="btn btn-primary btn-sm" onclick="switchProfile('${p.id}')">Activate</button>` : ''}
         <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
-        ${!p.active ? `<button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>
       </div>
     </div>
   `).join('');
@@ -939,10 +939,19 @@ async function saveProfile() {
 }
 
 async function deleteProfile(id) {
-  if (!confirm('Delete this business profile and all its history?')) return;
+  const profile = profilesData.profiles.find(p => p.id === id);
+  const isActive = profile?.active;
+  const msg = isActive
+    ? `Удалить активный профиль "${profile?.name}"? Будет активирован следующий профиль.`
+    : `Удалить профиль "${profile?.name}" и всю его историю?`;
+  if (!confirm(msg)) return;
   const res = await fetch(`/api/profiles/${id}`, { method: 'DELETE' }).then(r => r.json());
-  if (res.success) await loadProfiles();
-  else alert(res.error || 'Delete failed');
+  if (res.success) {
+    await loadProfiles();
+    if (isActive) await initSquare();
+  } else {
+    alert(res.error || 'Delete failed');
+  }
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
