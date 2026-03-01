@@ -461,15 +461,16 @@ app.post('/api/charge', requireAuth, async (req, res) => {
 });
 
 app.post('/api/payment-link', requireAuth, async (req, res) => {
-  const { amount, currency, title, description } = req.body;
+  const { amount, currency, title, description, locationId } = req.body;
   if (!amount) return res.status(400).json({ error: 'amount required' });
   const profile = activeProfile();
   if (profile.maxAmount && parseFloat(amount) > profile.maxAmount) return res.status(400).json({ success: false, errors: [{ detail: `Amount exceeds limit of $${profile.maxAmount.toFixed(2)}` }] });
+  const usedLocationId = locationId || profile.locationId;
   try {
     const amountCents = Math.round(parseFloat(amount) * 100);
-    const response = await squareClient.checkoutApi.createPaymentLink({ idempotencyKey: uuidv4(), quickPay: { name: title || 'Payment', priceMoney: { amount: BigInt(amountCents), currency: currency || 'USD' }, locationId: profile.locationId }, description: description || '' });
+    const response = await squareClient.checkoutApi.createPaymentLink({ idempotencyKey: uuidv4(), quickPay: { name: title || 'Payment', priceMoney: { amount: BigInt(amountCents), currency: currency || 'USD' }, locationId: usedLocationId }, description: description || '' });
     const link = response.result.paymentLink;
-    addTransaction(profile.id, { id: link.id, type: 'link', amount: parseFloat(amount), currency: currency||'USD', note: title||'', status: 'LINK_CREATED', url: link.url, createdAt: new Date().toISOString() });
+    addTransaction(profile.id, { id: link.id, type: 'link', amount: parseFloat(amount), currency: currency||'USD', note: title||'', locationId: usedLocationId, status: 'LINK_CREATED', url: link.url, createdAt: new Date().toISOString() });
     try { await persistProfiles(); } catch {}
     res.json({ success: true, url: link.url, linkId: link.id });
   } catch (err) {

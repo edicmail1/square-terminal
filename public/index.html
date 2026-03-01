@@ -388,6 +388,13 @@
   <!-- PAYMENT LINK -->
   <div class="panel" id="panel-link">
     <div class="field">
+      <label>Location <span class="req">*</span></label>
+      <select id="l-location">
+        <option value="">Loading locations...</option>
+      </select>
+      <div class="field-error" id="err-l-location"></div>
+    </div>
+    <div class="field">
       <label>Amount <span class="req">*</span></label>
       <div class="amount-wrap">
         <span>$</span>
@@ -775,6 +782,7 @@ async function switchProfile(id) {
     renderProfileSwitcher();
     renderProfileList();
     updateLimitInfo();
+    document.getElementById('l-location').dataset.loaded = ''; // reset location cache
     await initSquare();
   }
 }
@@ -898,6 +906,7 @@ function switchTab(tab) {
   ['manual','link','history','locations','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
+  if (tab === 'link')      loadLinkLocations();
   if (tab === 'history')   loadHistory();
   if (tab === 'locations') loadLocations();
   if (tab === 'report')    loadReport();
@@ -1009,6 +1018,28 @@ async function loadReport() {
 
   } catch (e) {
     el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${e.message}</div>`;
+  }
+}
+
+// ── Link Locations selector ───────────────────────────────────────────────────
+async function loadLinkLocations() {
+  const sel = document.getElementById('l-location');
+  if (sel.dataset.loaded === profilesData.activeId) return; // already loaded for this profile
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/locations`).then(r => r.json());
+    const locs = (data.locations || []).filter(l => l.status === 'ACTIVE');
+    if (!locs.length) {
+      sel.innerHTML = '<option value="">No active locations found</option>';
+      return;
+    }
+    const active = profilesData.profiles.find(p => p.id === profilesData.activeId);
+    sel.innerHTML = locs.map(l =>
+      `<option value="${l.id}" ${l.id === active?.locationId ? 'selected' : ''}>${l.name}${l.address ? ' — ' + l.address : ''}</option>`
+    ).join('');
+    sel.dataset.loaded = profilesData.activeId;
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load locations</option>';
   }
 }
 
@@ -1178,6 +1209,7 @@ async function chargeCard() {
 // ── Payment Link ──────────────────────────────────────────────────────────────
 async function createLink() {
   clearErrors();
+  const locationId = document.getElementById('l-location').value;
   const amount = document.getElementById('l-amount').value;
   const title  = document.getElementById('l-title').value.trim();
   const desc   = document.getElementById('l-desc').value.trim();
@@ -1185,6 +1217,7 @@ async function createLink() {
   const result = document.getElementById('result-link');
 
   let valid = true;
+  if (!locationId) { fieldError('l-location', 'Please select a location'); valid = false; }
   if (!amount || parseFloat(amount) <= 0) { fieldError('l-amount', 'Required'); valid = false; }
   if (!title) { fieldError('l-title', 'Title is required — it appears on the payment page'); valid = false; }
   if (!valid) return;
@@ -1196,7 +1229,7 @@ async function createLink() {
   const res = await fetch('/api/payment-link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, currency: 'USD', title, description: desc }),
+    body: JSON.stringify({ amount, currency: 'USD', title, description: desc, locationId }),
   }).then(r => r.json());
 
   if (res.success) {
