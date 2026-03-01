@@ -388,6 +388,10 @@ app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
         billingName:  [p.billing_address?.first_name, p.billing_address?.last_name].filter(Boolean).join(' ') || null,
         shippingName: [p.shipping_address?.first_name, p.shipping_address?.last_name].filter(Boolean).join(' ') || null,
         buyerEmail:   p.buyer_email_address || null,
+        // Decline reason
+        declineCode:   p.card_details?.errors?.[0]?.code || null,
+        declineDetail: p.card_details?.errors?.[0]?.detail || null,
+        declineCategory: p.card_details?.errors?.[0]?.category || null,
         // Issuer alerts (appear only when bank flags the transaction)
         issuerAlerts:          p.issuer_alerts || p.card_details?.issuer_alerts || [],
         issuerAlertsUpdatedAt: p.issuer_alerts_updated_at || null,

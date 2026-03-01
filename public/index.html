@@ -1127,7 +1127,26 @@ async function fetchHistory(append) {
     const statusColor = isOk ? '#10b981' : isFail ? '#ef4444' : '#f59e0b';
     const itemClass = isOk ? 'completed' : isFail ? 'failed' : '';
 
-    const riskColor = { LOW: '#10b981', MODERATE: '#f59e0b', HIGH: '#ef4444' }[p.riskLevel] || '#9ca3af';
+    const riskColor = { LOW: '#10b981', NORMAL: '#10b981', MODERATE: '#f59e0b', HIGH: '#ef4444' }[p.riskLevel] || '#9ca3af';
+
+    const declineLabels = {
+      'CARD_DECLINED':                       'Отказ банка (общий)',
+      'CARD_DECLINED_VERIFICATION_REQUIRED': 'Требуется верификация (3DS)',
+      'CVV_FAILURE':                         'Неверный CVV',
+      'ADDRESS_VERIFICATION_FAILURE':        'Неверный ZIP / адрес',
+      'EXPIRATION_FAILURE':                  'Карта просрочена',
+      'CARD_NOT_SUPPORTED':                  'Тип карты не поддерживается',
+      'INSUFFICIENT_FUNDS':                  'Недостаточно средств',
+      'TRANSACTION_LIMIT':                   'Превышен лимит транзакции',
+      'CARD_VELOCITY_EXCEEDED':              'Слишком много попыток',
+      'INVALID_ACCOUNT':                     'Счёт не существует',
+      'VOICE_FAILURE':                       'Требуется голосовая авторизация',
+      'PAN_FAILURE':                         'Неверный номер карты',
+      'BAD_EXPIRATION':                      'Неверная дата истечения',
+      'CHIP_INSERTION_REQUIRED':             'Требуется чип',
+      'ALLOWLIST_FAILURE':                   'Карта в стоп-листе',
+      'BLOCKED_BY_SQUARE':                   'Заблокировано Square',
+    };
 
     return `
     <div class="tx-item ${itemClass}">
@@ -1136,6 +1155,7 @@ async function fetchHistory(append) {
         <span style="font-size:11px;font-weight:700;color:${statusColor}">${p.status}</span>
       </div>
       ${p.note ? `<div class="tx-note" style="margin-top:3px">${p.note}</div>` : ''}
+      ${p.declineCode ? `<div class="tx-alert" style="margin-top:6px">❌ <strong>${declineLabels[p.declineCode] || p.declineCode}</strong>${p.declineDetail ? ' — ' + p.declineDetail : ''}</div>` : ''}
       <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}</div>
 
       <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
