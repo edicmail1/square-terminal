@@ -1189,7 +1189,11 @@ async function loadLocations() {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
               <span class="loc-status-badge ${statusClass}">${l.status}</span>
-              <span style="font-size:11px;font-weight:600;${l.canProcessPayments ? 'color:#10b981' : 'color:#ef4444'}">${l.canProcessPayments ? '✅ Платежи доступны' : '❌ Платежи недоступны'}</span>
+              <div style="font-size:11px;font-weight:600;line-height:1.8;text-align:right">
+                <div style="color:${l.capabilities.includes('CREDIT_CARD_PROCESSING') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('CREDIT_CARD_PROCESSING') ? '✅' : '❌'} Приём карт</div>
+                <div style="color:${l.capabilities.includes('AUTOMATIC_TRANSFERS') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('AUTOMATIC_TRANSFERS') ? '✅' : '❌'} Автовывод</div>
+                <div style="color:${l.capabilities.includes('UNLINKED_REFUNDS') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('UNLINKED_REFUNDS') ? '✅' : '❌'} Возвраты</div>
+              </div>
               <button class="btn btn-sm btn-primary" onclick="editLocation('${l.id}')">Edit</button>
             </div>
           </div>
