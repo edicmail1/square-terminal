@@ -469,6 +469,11 @@
         <input type="text" id="ledit-name" placeholder="Branch name" />
       </div>
       <div class="field">
+        <label>Business Name (на чеках)</label>
+        <input type="text" id="ledit-business-name" placeholder="Название как оно будет на чеках" maxlength="255" />
+        <div class="hint">⚠️ Можно менять не более 3 раз в год · до 255 символов</div>
+      </div>
+      <div class="field">
         <label>Description</label>
         <input type="text" id="ledit-desc" placeholder="Short description" />
       </div>
@@ -1186,6 +1191,7 @@ async function loadLocations() {
               ${l.address ? `<div class="loc-addr">📍 ${l.address}</div>` : ''}
               <div class="loc-addr">${l.timezone || ''} · ${l.currency || ''} · ${l.type || ''}</div>
               <div class="loc-addr" style="font-size:10px;color:#9ca3af">${l.id}</div>
+              ${l.created_at ? `<div class="loc-addr" style="font-size:10px;color:#9ca3af">Создана: ${new Date(l.created_at).toLocaleDateString('ru-RU', {day:'2-digit',month:'long',year:'numeric'})}</div>` : ''}
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
               <span class="loc-status-badge ${statusClass}">${l.status}</span>
@@ -1222,8 +1228,9 @@ function editLocation(id) {
   const l = locationsCache[id];
   if (!l) { alert('Location data not found, please refresh'); return; }
   document.getElementById('loc-edit-id').value     = l.id;
-  document.getElementById('ledit-name').value      = l.name || '';
-  document.getElementById('ledit-desc').value      = l.description || '';
+  document.getElementById('ledit-name').value          = l.name || '';
+  document.getElementById('ledit-business-name').value = l.business_name || '';
+  document.getElementById('ledit-desc').value           = l.description || '';
   document.getElementById('ledit-phone').value     = l.phone_number || '';
   document.getElementById('ledit-email').value     = l.business_email || '';
   document.getElementById('ledit-website').value   = l.website_url || '';
@@ -1251,6 +1258,7 @@ async function saveLocation() {
 
   const body = {
     name:               document.getElementById('ledit-name').value.trim(),
+    business_name:      document.getElementById('ledit-business-name').value.trim(),
     description:        document.getElementById('ledit-desc').value.trim(),
     phone_number:       document.getElementById('ledit-phone').value.trim(),
     business_email:     document.getElementById('ledit-email').value.trim(),

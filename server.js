@@ -382,7 +382,7 @@ app.get('/api/profiles/:id/locations', requireAuth, async (req, res) => {
       if (!totals[locId]) totals[locId] = { charged: 0, links: 0, count: 0 };
       if (tx.status !== 'FAILED') { totals[locId].count++; if (tx.type === 'charge') totals[locId].charged += tx.amount; if (tx.type === 'link') totals[locId].links += tx.amount; }
     }
-    res.json({ locations: (r.body.locations || []).map(l => ({ id: l.id, name: l.name, status: l.status, description: l.description || '', phone_number: l.phone_number || '', business_email: l.business_email || '', website_url: l.website_url || '', instagram_username: l.instagram_username || '', twitter_username: l.twitter_username || '', facebook_url: l.facebook_url || '', address: l.address ? [l.address.address_line_1, l.address.locality, l.address.administrative_district_level_1].filter(Boolean).join(', ') : null, address_line_1: l.address?.address_line_1 || '', city: l.address?.locality || '', state: l.address?.administrative_district_level_1 || '', postal_code: l.address?.postal_code || '', currency: l.currency, country: l.country, timezone: l.timezone, type: l.type, isActive: l.id === profile.locationId, canProcessPayments: Array.isArray(l.capabilities) && l.capabilities.includes('CREDIT_CARD_PROCESSING'), capabilities: l.capabilities || [], totals: totals[l.id] || { charged: 0, links: 0, count: 0 } })) });
+    res.json({ locations: (r.body.locations || []).map(l => ({ id: l.id, name: l.name, business_name: l.business_name || '', status: l.status, description: l.description || '', phone_number: l.phone_number || '', business_email: l.business_email || '', website_url: l.website_url || '', instagram_username: l.instagram_username || '', twitter_username: l.twitter_username || '', facebook_url: l.facebook_url || '', address: l.address ? [l.address.address_line_1, l.address.locality, l.address.administrative_district_level_1].filter(Boolean).join(', ') : null, address_line_1: l.address?.address_line_1 || '', city: l.address?.locality || '', state: l.address?.administrative_district_level_1 || '', postal_code: l.address?.postal_code || '', currency: l.currency, country: l.country, timezone: l.timezone, type: l.type, created_at: l.created_at || null, isActive: l.id === profile.locationId, canProcessPayments: Array.isArray(l.capabilities) && l.capabilities.includes('CREDIT_CARD_PROCESSING'), capabilities: l.capabilities || [], totals: totals[l.id] || { charged: 0, links: 0, count: 0 } })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -390,7 +390,7 @@ app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
   const profile = store.profiles.find(p => p.id === req.params.id);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-  const { name, description, address_line_1, city, state, postal_code, country,
+  const { name, business_name, description, address_line_1, city, state, postal_code, country,
           phone_number, business_email, website_url, timezone,
           instagram_username, twitter_username, facebook_url } = req.body;
 
@@ -399,6 +399,7 @@ app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
   const locationBody = {
     location: {
       name,
+      business_name:      business_name      || undefined,
       description:        description        || undefined,
       phone_number:       phone_number       || undefined,
       business_email:     business_email     || undefined,
