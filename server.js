@@ -2,15 +2,28 @@ require('dotenv').config();
 const express = require('express');
 const { Client, Environment } = require('square');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
-const client = new Client({
+// Mutable config — can be updated at runtime
+let config = {
   accessToken: process.env.SQUARE_ACCESS_TOKEN,
-  environment: Environment.Production,
-});
+  applicationId: process.env.SQUARE_APPLICATION_ID,
+  locationId: process.env.SQUARE_LOCATION_ID,
+};
+
+function createClient() {
+  return new Client({
+    accessToken: config.accessToken,
+    environment: Environment.Production,
+  });
+}
+
+let client = createClient();
 
 // Charge card manually (manual entry)
 app.post('/api/charge', async (req, res) => {
@@ -30,7 +43,7 @@ app.post('/api/charge', async (req, res) => {
         amount: BigInt(amountCents),
         currency: currency || 'USD',
       },
-      locationId: process.env.SQUARE_LOCATION_ID,
+      locationId: config.locationId,
       note: note || '',
       buyerEmailAddress: buyerEmail || undefined,
       verificationToken: verificationToken || undefined,
@@ -72,7 +85,7 @@ app.post('/api/payment-link', async (req, res) => {
           amount: BigInt(amountCents),
           currency: currency || 'USD',
         },
-        locationId: process.env.SQUARE_LOCATION_ID,
+        locationId: config.locationId,
       },
       description: description || '',
     });
@@ -92,9 +105,51 @@ app.post('/api/payment-link', async (req, res) => {
 // Expose public config for frontend
 app.get('/api/config', (req, res) => {
   res.json({
-    applicationId: process.env.SQUARE_APPLICATION_ID,
-    locationId: process.env.SQUARE_LOCATION_ID,
+    applicationId: config.applicationId,
+    locationId: config.locationId,
   });
+});
+
+// Get current settings (masked token)
+app.get('/api/settings', (req, res) => {
+  const token = config.accessToken || '';
+  const masked = token.length > 8
+    ? token.slice(0, 4) + '••••••••' + token.slice(-4)
+    : '••••••••';
+  res.json({
+    accessTokenMasked: masked,
+    applicationId: config.applicationId || '',
+    locationId: config.locationId || '',
+  });
+});
+
+// Update settings — saves to .env and reinitializes client
+app.post('/api/settings', (req, res) => {
+  const { accessToken, applicationId, locationId } = req.body;
+
+  if (accessToken) config.accessToken = accessToken.trim();
+  if (applicationId) config.applicationId = applicationId.trim();
+  if (locationId) config.locationId = locationId.trim();
+
+  // Reinitialize Square client with new credentials
+  client = createClient();
+
+  // Persist to .env file
+  const envPath = path.join(__dirname, '.env');
+  const envContent = [
+    `SQUARE_ACCESS_TOKEN=${config.accessToken}`,
+    `SQUARE_APPLICATION_ID=${config.applicationId}`,
+    `SQUARE_LOCATION_ID=${config.locationId}`,
+    `SQUARE_ENVIRONMENT=production`,
+    `PORT=${process.env.PORT || 3000}`,
+  ].join('\n') + '\n';
+
+  try {
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    res.json({ success: true, message: 'Settings saved and applied.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to save .env: ' + err.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;

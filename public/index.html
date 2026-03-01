@@ -159,6 +159,7 @@
   <div class="tabs">
     <div class="tab active" onclick="switchTab('manual')">Manual Entry</div>
     <div class="tab" onclick="switchTab('link')">Payment Link</div>
+    <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
   </div>
 
   <!-- MANUAL ENTRY -->
@@ -192,6 +193,25 @@
     </div>
     <button class="btn btn-primary" id="btn-charge" onclick="chargeCard()">Charge</button>
     <div class="result" id="result-manual"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="panel" id="panel-settings">
+    <div class="field">
+      <label>Access Token</label>
+      <input type="password" id="s-token" placeholder="Leave blank to keep current" autocomplete="off" />
+      <div style="font-size:12px;color:#6b7280;margin-top:4px;" id="s-token-hint"></div>
+    </div>
+    <div class="field">
+      <label>Application ID</label>
+      <input type="text" id="s-appid" placeholder="sq0idp-..." autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Location ID</label>
+      <input type="text" id="s-locid" placeholder="L..." autocomplete="off" />
+    </div>
+    <button class="btn btn-primary" id="btn-settings" onclick="saveSettings()">Save & Apply</button>
+    <div class="result" id="result-settings"></div>
   </div>
 
   <!-- PAYMENT LINK -->
@@ -232,10 +252,64 @@ async function init() {
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'manual') || (i === 1 && tab === 'link'));
+    t.classList.toggle('active',
+      (i === 0 && tab === 'manual') ||
+      (i === 1 && tab === 'link') ||
+      (i === 2 && tab === 'settings')
+    );
   });
   document.getElementById('panel-manual').classList.toggle('active', tab === 'manual');
   document.getElementById('panel-link').classList.toggle('active', tab === 'link');
+  document.getElementById('panel-settings').classList.toggle('active', tab === 'settings');
+  if (tab === 'settings') loadSettings();
+}
+
+async function loadSettings() {
+  try {
+    const data = await fetch('/api/settings').then(r => r.json());
+    document.getElementById('s-token-hint').textContent = 'Current: ' + (data.accessTokenMasked || '—');
+    document.getElementById('s-appid').value = data.applicationId || '';
+    document.getElementById('s-locid').value = data.locationId || '';
+  } catch(e) {}
+}
+
+async function saveSettings() {
+  const token = document.getElementById('s-token').value.trim();
+  const appId = document.getElementById('s-appid').value.trim();
+  const locId = document.getElementById('s-locid').value.trim();
+  const btn = document.getElementById('btn-settings');
+  const result = document.getElementById('result-settings');
+
+  if (!appId || !locId) {
+    showResult(result, 'error', 'Application ID and Location ID are required.');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Saving...';
+  result.style.display = 'none';
+
+  const body = { applicationId: appId, locationId: locId };
+  if (token) body.accessToken = token;
+
+  const res = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json());
+
+  if (res.success) {
+    // Update in-memory config for Square.js (requires page re-init)
+    document.getElementById('s-token').value = '';
+    loadSettings();
+    showResult(result, 'success', '✅ ' + res.message + ' Refreshing card form...');
+    setTimeout(() => { location.reload(); }, 1500);
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Save failed'));
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Save & Apply';
 }
 
 async function chargeCard() {
