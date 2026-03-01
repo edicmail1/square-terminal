@@ -382,7 +382,47 @@ app.get('/api/profiles/:id/locations', requireAuth, async (req, res) => {
       if (!totals[locId]) totals[locId] = { charged: 0, links: 0, count: 0 };
       if (tx.status !== 'FAILED') { totals[locId].count++; if (tx.type === 'charge') totals[locId].charged += tx.amount; if (tx.type === 'link') totals[locId].links += tx.amount; }
     }
-    res.json({ locations: (r.body.locations || []).map(l => ({ id: l.id, name: l.name, status: l.status, address: l.address ? [l.address.address_line_1, l.address.locality, l.address.administrative_district_level_1].filter(Boolean).join(', ') : null, currency: l.currency, country: l.country, timezone: l.timezone, type: l.type, isActive: l.id === profile.locationId, totals: totals[l.id] || { charged: 0, links: 0, count: 0 } })) });
+    res.json({ locations: (r.body.locations || []).map(l => ({ id: l.id, name: l.name, status: l.status, description: l.description || '', phone_number: l.phone_number || '', business_email: l.business_email || '', website_url: l.website_url || '', instagram_username: l.instagram_username || '', twitter_username: l.twitter_username || '', facebook_url: l.facebook_url || '', address: l.address ? [l.address.address_line_1, l.address.locality, l.address.administrative_district_level_1].filter(Boolean).join(', ') : null, address_line_1: l.address?.address_line_1 || '', city: l.address?.locality || '', state: l.address?.administrative_district_level_1 || '', postal_code: l.address?.postal_code || '', currency: l.currency, country: l.country, timezone: l.timezone, type: l.type, isActive: l.id === profile.locationId, totals: totals[l.id] || { charged: 0, links: 0, count: 0 } })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+  const { name, description, address_line_1, city, state, postal_code, country,
+          phone_number, business_email, website_url, timezone,
+          instagram_username, twitter_username, facebook_url } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
+  const locationBody = {
+    location: {
+      name,
+      description:        description        || undefined,
+      phone_number:       phone_number       || undefined,
+      business_email:     business_email     || undefined,
+      website_url:        website_url        || undefined,
+      timezone:           timezone           || undefined,
+      instagram_username: instagram_username || undefined,
+      twitter_username:   twitter_username   || undefined,
+      facebook_url:       facebook_url       || undefined,
+      ...(address_line_1 ? {
+        address: {
+          address_line_1,
+          locality: city || undefined,
+          administrative_district_level_1: state || undefined,
+          postal_code: postal_code || undefined,
+          country: country || 'US',
+        }
+      } : {}),
+    }
+  };
+
+  try {
+    const r = await squareRequest('PUT', profile.accessToken, `/v2/locations/${req.params.locId}`, locationBody);
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+    res.json({ success: true, location: r.body.location });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

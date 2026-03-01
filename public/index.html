@@ -460,6 +460,72 @@
 
     <hr class="divider" />
 
+    <!-- Edit form -->
+    <div id="loc-edit-block" style="display:none">
+      <div class="section-title">✏️ Edit Location</div>
+      <input type="hidden" id="loc-edit-id" />
+      <div class="field">
+        <label>Name <span class="req">*</span></label>
+        <input type="text" id="ledit-name" placeholder="Branch name" />
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <input type="text" id="ledit-desc" placeholder="Short description" />
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Phone</label>
+          <input type="text" id="ledit-phone" placeholder="+1 555 000 0000" />
+        </div>
+        <div class="field">
+          <label>Business Email</label>
+          <input type="email" id="ledit-email" placeholder="info@business.com" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Website</label>
+        <input type="text" id="ledit-website" placeholder="https://..." />
+      </div>
+      <div class="field">
+        <label>Address</label>
+        <input type="text" id="ledit-addr" placeholder="123 Main St" />
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>City</label>
+          <input type="text" id="ledit-city" placeholder="New York" />
+        </div>
+        <div class="field">
+          <label>State</label>
+          <input type="text" id="ledit-state" placeholder="NY" maxlength="2" />
+        </div>
+        <div class="field">
+          <label>ZIP</label>
+          <input type="text" id="ledit-zip" placeholder="10001" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Instagram</label>
+          <input type="text" id="ledit-instagram" placeholder="@handle" />
+        </div>
+        <div class="field">
+          <label>Twitter / X</label>
+          <input type="text" id="ledit-twitter" placeholder="@handle" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Facebook URL</label>
+        <input type="text" id="ledit-facebook" placeholder="https://facebook.com/..." />
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveLocation()" style="flex:1">Save Changes</button>
+        <button class="btn btn-sm" onclick="cancelEditLocation()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:13px 16px">Cancel</button>
+      </div>
+      <div class="result" id="result-loc-edit"></div>
+      <hr class="divider" />
+    </div>
+
     <div class="section-title">➕ Create Location</div>
     <div class="field">
       <label>Name <span class="req">*</span></label>
@@ -1074,7 +1140,10 @@ async function loadLocations() {
               <div class="loc-addr">${l.timezone || ''} · ${l.currency || ''} · ${l.type || ''}</div>
               <div class="loc-addr" style="font-size:10px;color:#9ca3af">${l.id}</div>
             </div>
-            <span class="loc-status-badge ${statusClass}">${l.status}</span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <span class="loc-status-badge ${statusClass}">${l.status}</span>
+              <button class="btn btn-sm btn-primary" onclick='editLocation(' + JSON.stringify(l) + ')'>Edit</button>
+            </div>
           </div>
           <div class="loc-stats">
             <div class="loc-stat">
@@ -1095,6 +1164,72 @@ async function loadLocations() {
   } catch (e) {
     el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${e.message}</div>`;
   }
+}
+
+function editLocation(l) {
+  document.getElementById('loc-edit-id').value    = l.id;
+  document.getElementById('ledit-name').value     = l.name || '';
+  document.getElementById('ledit-desc').value     = l.description || '';
+  document.getElementById('ledit-phone').value    = l.phone_number || '';
+  document.getElementById('ledit-email').value    = l.business_email || '';
+  document.getElementById('ledit-website').value  = l.website_url || '';
+  document.getElementById('ledit-addr').value     = l.address_line_1 || '';
+  document.getElementById('ledit-city').value     = l.city || '';
+  document.getElementById('ledit-state').value    = l.state || '';
+  document.getElementById('ledit-zip').value      = l.postal_code || '';
+  document.getElementById('ledit-instagram').value = l.instagram_username || '';
+  document.getElementById('ledit-twitter').value  = l.twitter_username || '';
+  document.getElementById('ledit-facebook').value = l.facebook_url || '';
+  document.getElementById('result-loc-edit').style.display = 'none';
+  const block = document.getElementById('loc-edit-block');
+  block.style.display = 'block';
+  block.scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEditLocation() {
+  document.getElementById('loc-edit-block').style.display = 'none';
+}
+
+async function saveLocation() {
+  const locId   = document.getElementById('loc-edit-id').value;
+  const result  = document.getElementById('result-loc-edit');
+  const btn     = document.querySelector('#loc-edit-block .btn-primary');
+
+  const body = {
+    name:               document.getElementById('ledit-name').value.trim(),
+    description:        document.getElementById('ledit-desc').value.trim(),
+    phone_number:       document.getElementById('ledit-phone').value.trim(),
+    business_email:     document.getElementById('ledit-email').value.trim(),
+    website_url:        document.getElementById('ledit-website').value.trim(),
+    address_line_1:     document.getElementById('ledit-addr').value.trim(),
+    city:               document.getElementById('ledit-city').value.trim(),
+    state:              document.getElementById('ledit-state').value.trim(),
+    postal_code:        document.getElementById('ledit-zip').value.trim(),
+    instagram_username: document.getElementById('ledit-instagram').value.trim(),
+    twitter_username:   document.getElementById('ledit-twitter').value.trim(),
+    facebook_url:       document.getElementById('ledit-facebook').value.trim(),
+  };
+
+  if (!body.name) { showResult(result, 'error', 'Name is required'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Saving...';
+
+  const res = await fetch(`/api/profiles/${profilesData.activeId}/locations/${locId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showResult(result, 'success', `✅ Location "${res.location.name}" updated!`);
+    loadLocations(); // refresh list
+    document.getElementById('l-location').dataset.loaded = ''; // reset link tab cache
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Failed to save'));
+  }
+  btn.disabled = false;
+  btn.innerHTML = 'Save Changes';
 }
 
 async function createLocation() {
@@ -1269,4 +1404,5 @@ checkAuth();
 </script>
 </body>
 </html>
+
 
