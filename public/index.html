@@ -27,40 +27,65 @@
     .header {
       background: #006AFF;
       color: white;
-      padding: 24px 28px;
+      padding: 20px 28px;
     }
-    .header h1 { font-size: 22px; font-weight: 600; }
-    .header p { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header p { font-size: 12px; opacity: 0.8; margin-top: 3px; }
+    .profile-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    .profile-bar label {
+      font-size: 12px;
+      color: rgba(255,255,255,0.8);
+      white-space: nowrap;
+    }
+    .profile-select {
+      flex: 1;
+      background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 6px;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 5px 8px;
+      cursor: pointer;
+      outline: none;
+    }
+    .profile-select option { background: #006AFF; color: white; }
     .tabs {
       display: flex;
       border-bottom: 1px solid #e5e7eb;
     }
     .tab {
       flex: 1;
-      padding: 14px;
+      padding: 13px 8px;
       text-align: center;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       cursor: pointer;
       color: #6b7280;
       border-bottom: 2px solid transparent;
       transition: all 0.2s;
     }
-    .tab.active {
-      color: #006AFF;
-      border-bottom-color: #006AFF;
-    }
-    .panel { display: none; padding: 24px 28px; }
+    .tab.active { color: #006AFF; border-bottom-color: #006AFF; }
+    .panel { display: none; padding: 22px 28px; }
     .panel.active { display: block; }
-    .field { margin-bottom: 16px; }
+    .field { margin-bottom: 15px; }
     label {
       display: block;
       font-size: 13px;
       font-weight: 500;
       color: #374151;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
     }
-    input[type="text"], input[type="number"], input[type="email"], select {
+    input[type="text"], input[type="number"], input[type="email"],
+    input[type="password"], select {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #d1d5db;
@@ -70,16 +95,10 @@
       transition: border 0.2s;
     }
     input:focus, select:focus { border-color: #006AFF; }
-    .amount-wrap {
-      position: relative;
-    }
+    .amount-wrap { position: relative; }
     .amount-wrap span {
-      position: absolute;
-      left: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: #6b7280;
-      font-size: 14px;
+      position: absolute; left: 12px; top: 50%;
+      transform: translateY(-50%); color: #6b7280; font-size: 14px;
     }
     .amount-wrap input { padding-left: 24px; }
     #card-container {
@@ -89,15 +108,9 @@
       min-height: 44px;
     }
     .btn {
-      width: 100%;
-      padding: 13px;
-      border: none;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-      margin-top: 8px;
+      width: 100%; padding: 13px; border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s; margin-top: 8px;
     }
     .btn-primary { background: #006AFF; color: white; }
     .btn-primary:hover { background: #0057d4; }
@@ -105,48 +118,53 @@
     .btn-link { background: #10b981; color: white; }
     .btn-link:hover { background: #059669; }
     .btn-link:disabled { background: #6ee7b7; cursor: not-allowed; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-sm {
+      width: auto; padding: 6px 14px; font-size: 13px; margin-top: 0;
+    }
     .result {
-      margin-top: 16px;
-      padding: 14px;
-      border-radius: 8px;
-      font-size: 14px;
-      display: none;
+      margin-top: 14px; padding: 13px; border-radius: 8px;
+      font-size: 14px; display: none;
     }
     .result.success { background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
     .result.error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
-    .link-box {
-      display: flex;
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .link-box input {
-      flex: 1;
-      background: #f9fafb;
-      font-size: 13px;
-    }
+    .link-box { display: flex; gap: 8px; margin-top: 10px; }
+    .link-box input { flex: 1; background: #f9fafb; font-size: 13px; }
     .btn-copy {
-      padding: 10px 14px;
-      background: #006AFF;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      white-space: nowrap;
+      padding: 10px 14px; background: #006AFF; color: white;
+      border: none; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 600; white-space: nowrap;
     }
     .btn-copy:hover { background: #0057d4; }
     .spinner {
-      display: inline-block;
-      width: 16px; height: 16px;
-      border: 2px solid rgba(255,255,255,0.4);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.4); border-top-color: white;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Settings - profile list */
+    .profile-list { margin-bottom: 20px; }
+    .profile-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid #e5e7eb;
+      border-radius: 8px; margin-bottom: 8px;
+      background: #f9fafb;
+    }
+    .profile-item.is-active { border-color: #006AFF; background: #eff6ff; }
+    .profile-item-name { flex: 1; font-size: 14px; font-weight: 600; color: #111827; }
+    .profile-item-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .badge-active {
+      font-size: 11px; background: #006AFF; color: white;
+      padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+    }
+    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+    .section-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 12px; }
+    .hint { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+    .row { display: flex; gap: 10px; }
+    .row .field { flex: 1; }
   </style>
 </head>
 <body>
@@ -154,6 +172,12 @@
   <div class="header">
     <h1>💳 Payment Terminal</h1>
     <p>Manual entry or send payment link</p>
+    <div class="profile-bar">
+      <label>Business:</label>
+      <select class="profile-select" id="profile-switcher" onchange="switchProfile(this.value)">
+        <option>Loading...</option>
+      </select>
+    </div>
   </div>
 
   <div class="tabs">
@@ -195,25 +219,6 @@
     <div class="result" id="result-manual"></div>
   </div>
 
-  <!-- SETTINGS -->
-  <div class="panel" id="panel-settings">
-    <div class="field">
-      <label>Access Token</label>
-      <input type="password" id="s-token" placeholder="Leave blank to keep current" autocomplete="off" />
-      <div style="font-size:12px;color:#6b7280;margin-top:4px;" id="s-token-hint"></div>
-    </div>
-    <div class="field">
-      <label>Application ID</label>
-      <input type="text" id="s-appid" placeholder="sq0idp-..." autocomplete="off" />
-    </div>
-    <div class="field">
-      <label>Location ID</label>
-      <input type="text" id="s-locid" placeholder="L..." autocomplete="off" />
-    </div>
-    <button class="btn btn-primary" id="btn-settings" onclick="saveSettings()">Save & Apply</button>
-    <div class="result" id="result-settings"></div>
-  </div>
-
   <!-- PAYMENT LINK -->
   <div class="panel" id="panel-link">
     <div class="field">
@@ -234,22 +239,177 @@
     <button class="btn btn-link" id="btn-link" onclick="createLink()">Generate Link</button>
     <div class="result" id="result-link"></div>
   </div>
+
+  <!-- SETTINGS -->
+  <div class="panel" id="panel-settings">
+
+    <!-- Profile list -->
+    <div class="section-title">Your Businesses</div>
+    <div class="profile-list" id="profile-list">Loading...</div>
+
+    <hr class="divider" />
+
+    <!-- Add / Edit form -->
+    <div class="section-title" id="form-title">➕ Add Business</div>
+    <input type="hidden" id="edit-id" />
+    <div class="field">
+      <label>Business Name</label>
+      <input type="text" id="s-name" placeholder="e.g. Acme Salon" />
+    </div>
+    <div class="field">
+      <label>Access Token</label>
+      <input type="password" id="s-token" placeholder="EAAl..." autocomplete="off" />
+      <div class="hint" id="s-token-hint"></div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Application ID</label>
+        <input type="text" id="s-appid" placeholder="sq0idp-..." autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Location ID</label>
+        <input type="text" id="s-locid" placeholder="L..." autocomplete="off" />
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" id="btn-save-profile" onclick="saveProfile()" style="flex:1">Save Business</button>
+      <button class="btn btn-sm" id="btn-cancel-edit" onclick="cancelEdit()" style="display:none;background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Cancel</button>
+    </div>
+    <div class="result" id="result-settings"></div>
+  </div>
 </div>
 
 <script>
 let card;
 let appId, locId;
+let profilesData = { activeId: null, profiles: [] };
 
+// ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
+  await loadProfiles();
+  await initSquare();
+}
+
+async function initSquare() {
   const cfg = await fetch('/api/config').then(r => r.json());
   appId = cfg.applicationId;
   locId = cfg.locationId;
-
+  if (card) { try { await card.destroy(); } catch {} }
+  document.getElementById('card-container').innerHTML = '';
   const payments = Square.payments(appId, locId);
   card = await payments.card();
   await card.attach('#card-container');
 }
 
+// ── Profiles ─────────────────────────────────────────────────────────────────
+async function loadProfiles() {
+  profilesData = await fetch('/api/profiles').then(r => r.json());
+  renderProfileSwitcher();
+  renderProfileList();
+}
+
+function renderProfileSwitcher() {
+  const sel = document.getElementById('profile-switcher');
+  sel.innerHTML = profilesData.profiles.map(p =>
+    `<option value="${p.id}" ${p.id === profilesData.activeId ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+}
+
+function renderProfileList() {
+  const el = document.getElementById('profile-list');
+  if (!profilesData.profiles.length) { el.innerHTML = '<div style="color:#6b7280;font-size:13px">No profiles yet.</div>'; return; }
+  el.innerHTML = profilesData.profiles.map(p => `
+    <div class="profile-item ${p.active ? 'is-active' : ''}">
+      <div style="flex:1">
+        <div class="profile-item-name">${p.name}</div>
+        <div class="profile-item-sub">${p.applicationId} · ${p.locationId}</div>
+      </div>
+      ${p.active ? '<span class="badge-active">Active</span>' : ''}
+      <button class="btn btn-sm btn-primary" onclick="editProfile('${p.id}')" style="padding:5px 10px;font-size:12px">Edit</button>
+      ${!p.active ? `<button class="btn btn-sm btn-danger" onclick="deleteProfile('${p.id}')" style="padding:5px 10px;font-size:12px">✕</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function switchProfile(id) {
+  const res = await fetch(`/api/profiles/${id}/activate`, { method: 'POST' }).then(r => r.json());
+  if (res.success) {
+    profilesData.activeId = id;
+    profilesData.profiles.forEach(p => p.active = p.id === id);
+    renderProfileList();
+    await initSquare();
+  }
+}
+
+function editProfile(id) {
+  const p = profilesData.profiles.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('edit-id').value = p.id;
+  document.getElementById('s-name').value = p.name;
+  document.getElementById('s-appid').value = p.applicationId;
+  document.getElementById('s-locid').value = p.locationId;
+  document.getElementById('s-token').value = '';
+  document.getElementById('s-token-hint').textContent = 'Token: ' + p.accessTokenMasked + ' (leave blank to keep)';
+  document.getElementById('form-title').textContent = '✏️ Edit Business';
+  document.getElementById('btn-cancel-edit').style.display = 'inline-block';
+  document.getElementById('panel-settings').scrollTop = 9999;
+}
+
+function cancelEdit() {
+  document.getElementById('edit-id').value = '';
+  document.getElementById('s-name').value = '';
+  document.getElementById('s-appid').value = '';
+  document.getElementById('s-locid').value = '';
+  document.getElementById('s-token').value = '';
+  document.getElementById('s-token-hint').textContent = '';
+  document.getElementById('form-title').textContent = '➕ Add Business';
+  document.getElementById('btn-cancel-edit').style.display = 'none';
+}
+
+async function saveProfile() {
+  const id = document.getElementById('edit-id').value;
+  const name = document.getElementById('s-name').value.trim();
+  const token = document.getElementById('s-token').value.trim();
+  const appId = document.getElementById('s-appid').value.trim();
+  const locId = document.getElementById('s-locid').value.trim();
+  const result = document.getElementById('result-settings');
+
+  if (!name || !appId || !locId) {
+    showResult(result, 'error', 'Name, Application ID and Location ID are required.');
+    return;
+  }
+  if (!id && !token) {
+    showResult(result, 'error', 'Access Token is required for a new business.');
+    return;
+  }
+
+  const body = { name, applicationId: appId, locationId: locId };
+  if (id) body.id = id;
+  if (token) body.accessToken = token;
+
+  const res = await fetch('/api/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showResult(result, 'success', '✅ Saved!');
+    cancelEdit();
+    await loadProfiles();
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Save failed'));
+  }
+}
+
+async function deleteProfile(id) {
+  if (!confirm('Delete this business profile?')) return;
+  const res = await fetch(`/api/profiles/${id}`, { method: 'DELETE' }).then(r => r.json());
+  if (res.success) await loadProfiles();
+  else alert(res.error || 'Delete failed');
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active',
@@ -258,60 +418,13 @@ function switchTab(tab) {
       (i === 2 && tab === 'settings')
     );
   });
-  document.getElementById('panel-manual').classList.toggle('active', tab === 'manual');
-  document.getElementById('panel-link').classList.toggle('active', tab === 'link');
-  document.getElementById('panel-settings').classList.toggle('active', tab === 'settings');
-  if (tab === 'settings') loadSettings();
+  ['manual','link','settings'].forEach(id => {
+    document.getElementById('panel-' + id).classList.toggle('active', tab === id);
+  });
+  if (tab === 'settings') loadProfiles();
 }
 
-async function loadSettings() {
-  try {
-    const data = await fetch('/api/settings').then(r => r.json());
-    document.getElementById('s-token-hint').textContent = 'Current: ' + (data.accessTokenMasked || '—');
-    document.getElementById('s-appid').value = data.applicationId || '';
-    document.getElementById('s-locid').value = data.locationId || '';
-  } catch(e) {}
-}
-
-async function saveSettings() {
-  const token = document.getElementById('s-token').value.trim();
-  const appId = document.getElementById('s-appid').value.trim();
-  const locId = document.getElementById('s-locid').value.trim();
-  const btn = document.getElementById('btn-settings');
-  const result = document.getElementById('result-settings');
-
-  if (!appId || !locId) {
-    showResult(result, 'error', 'Application ID and Location ID are required.');
-    return;
-  }
-
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Saving...';
-  result.style.display = 'none';
-
-  const body = { applicationId: appId, locationId: locId };
-  if (token) body.accessToken = token;
-
-  const res = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }).then(r => r.json());
-
-  if (res.success) {
-    // Update in-memory config for Square.js (requires page re-init)
-    document.getElementById('s-token').value = '';
-    loadSettings();
-    showResult(result, 'success', '✅ ' + res.message + ' Refreshing card form...');
-    setTimeout(() => { location.reload(); }, 1500);
-  } else {
-    showResult(result, 'error', '❌ ' + (res.error || 'Save failed'));
-  }
-
-  btn.disabled = false;
-  btn.innerHTML = 'Save & Apply';
-}
-
+// ── Charge ────────────────────────────────────────────────────────────────────
 async function chargeCard() {
   const amount = document.getElementById('m-amount').value;
   const name = document.getElementById('m-name').value;
@@ -321,10 +434,7 @@ async function chargeCard() {
   const btn = document.getElementById('btn-charge');
   const result = document.getElementById('result-manual');
 
-  if (!amount || parseFloat(amount) <= 0) {
-    showResult(result, 'error', 'Please enter a valid amount.');
-    return;
-  }
+  if (!amount || parseFloat(amount) <= 0) { showResult(result, 'error', 'Please enter a valid amount.'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Processing...';
@@ -332,41 +442,32 @@ async function chargeCard() {
 
   try {
     const tokenResult = await card.tokenize();
-    if (tokenResult.status !== 'OK') {
-      throw new Error(tokenResult.errors?.map(e => e.message).join(', ') || 'Card tokenization failed');
-    }
+    if (tokenResult.status !== 'OK') throw new Error(tokenResult.errors?.map(e => e.message).join(', ') || 'Tokenization failed');
 
-    // Verify buyer (required for card-not-present / keyed-in)
     const payments = Square.payments(appId, locId);
-    const verificationDetails = {
-      intent: 'CHARGE',
-      customerInitiated: true,
-      sellerKeyedIn: true,
-      amount: parseFloat(amount).toFixed(2),
-      currencyCode: 'USD',
+    const verifyResult = await payments.verifyBuyer(tokenResult.token, {
+      intent: 'CHARGE', customerInitiated: true, sellerKeyedIn: true,
+      amount: parseFloat(amount).toFixed(2), currencyCode: 'USD',
       billingContact: zip ? { postalCode: zip } : undefined,
-    };
-    const verifyResult = await payments.verifyBuyer(tokenResult.token, verificationDetails);
+    });
 
     const res = await fetch('/api/charge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceId: tokenResult.token,
-        verificationToken: verifyResult?.token || undefined,
-        amount,
-        currency: 'USD',
+        verificationToken: verifyResult?.token,
+        amount, currency: 'USD',
         note: [name, note].filter(Boolean).join(' — '),
         buyerEmail: email || undefined,
       }),
     }).then(r => r.json());
 
     if (res.success) {
-      const receiptLink = res.receiptUrl ? `<br><a href="${res.receiptUrl}" target="_blank">View Receipt</a>` : '';
-      showResult(result, 'success', `✅ Payment successful! ID: ${res.paymentId}${receiptLink}`);
+      const receipt = res.receiptUrl ? `<br><a href="${res.receiptUrl}" target="_blank">View Receipt</a>` : '';
+      showResult(result, 'success', `✅ Payment successful! ID: ${res.paymentId}${receipt}`);
     } else {
-      const msg = res.errors?.map(e => e.detail).join('<br>') || 'Payment failed';
-      showResult(result, 'error', '❌ ' + msg);
+      showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Payment failed'));
     }
   } catch (e) {
     showResult(result, 'error', '❌ ' + e.message);
@@ -376,6 +477,7 @@ async function chargeCard() {
   btn.innerHTML = 'Charge';
 }
 
+// ── Payment Link ──────────────────────────────────────────────────────────────
 async function createLink() {
   const amount = document.getElementById('l-amount').value;
   const title = document.getElementById('l-title').value || 'Payment';
@@ -383,10 +485,7 @@ async function createLink() {
   const btn = document.getElementById('btn-link');
   const result = document.getElementById('result-link');
 
-  if (!amount || parseFloat(amount) <= 0) {
-    showResult(result, 'error', 'Please enter a valid amount.');
-    return;
-  }
+  if (!amount || parseFloat(amount) <= 0) { showResult(result, 'error', 'Please enter a valid amount.'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Generating...';
@@ -407,8 +506,7 @@ async function createLink() {
         <button class="btn-copy" onclick="copyLink()">Copy</button>
       </div>`;
   } else {
-    const msg = res.errors?.map(e => e.detail).join('<br>') || 'Failed to create link';
-    showResult(result, 'error', '❌ ' + msg);
+    showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Failed'));
   }
 
   btn.disabled = false;
@@ -416,8 +514,7 @@ async function createLink() {
 }
 
 function copyLink() {
-  const input = document.getElementById('link-url');
-  navigator.clipboard.writeText(input.value).then(() => {
+  navigator.clipboard.writeText(document.getElementById('link-url').value).then(() => {
     const btn = document.querySelector('.btn-copy');
     btn.textContent = 'Copied!';
     setTimeout(() => btn.textContent = 'Copy', 2000);
