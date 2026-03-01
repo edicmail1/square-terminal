@@ -182,6 +182,36 @@
     .status-dot.active { background: #10b981; }
     .status-dot.inactive { background: #ef4444; }
 
+    /* Locations */
+    .loc-card {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .loc-card.loc-active { border-color: #006AFF; }
+    .loc-header {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 11px 13px; background: #f9fafb;
+    }
+    .loc-card.loc-active .loc-header { background: #eff6ff; }
+    .loc-name { font-size: 14px; font-weight: 700; color: #111827; }
+    .loc-addr { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .loc-status-badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+    }
+    .loc-status-active { background: #d1fae5; color: #065f46; }
+    .loc-status-inactive { background: #fee2e2; color: #991b1b; }
+    .loc-stats {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      border-top: 1px solid #e5e7eb;
+    }
+    .loc-stat {
+      padding: 9px 13px; text-align: center;
+      border-right: 1px solid #e5e7eb;
+    }
+    .loc-stat:last-child { border-right: none; }
+    .loc-stat-value { font-size: 15px; font-weight: 700; color: #111827; }
+    .loc-stat-label { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+
     .divider { border: none; border-top: 1px solid #e5e7eb; margin: 18px 0; }
     .section-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
     .hint { font-size: 11px; color: #9ca3af; margin-top: 3px; }
@@ -207,6 +237,7 @@
     <div class="tab active" onclick="switchTab('manual')">Manual Entry</div>
     <div class="tab" onclick="switchTab('link')">Payment Link</div>
     <div class="tab" onclick="switchTab('history')">📋 History</div>
+    <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
     <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
   </div>
 
@@ -275,6 +306,56 @@
     <div class="tx-list" id="tx-list">
       <div class="empty-state">Loading...</div>
     </div>
+  </div>
+
+  <!-- LOCATIONS -->
+  <div class="panel" id="panel-locations">
+    <div id="locations-list"><div class="empty-state">Loading...</div></div>
+
+    <hr class="divider" />
+
+    <div class="section-title">➕ Create Location</div>
+    <div class="field">
+      <label>Name <span class="req">*</span></label>
+      <input type="text" id="loc-name" placeholder="e.g. Downtown Branch" />
+    </div>
+    <div class="field">
+      <label>Description (optional)</label>
+      <input type="text" id="loc-desc" placeholder="Additional info..." />
+    </div>
+    <div class="field">
+      <label>Address (optional)</label>
+      <input type="text" id="loc-addr" placeholder="123 Main St" />
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>City</label>
+        <input type="text" id="loc-city" placeholder="New York" />
+      </div>
+      <div class="field">
+        <label>State</label>
+        <input type="text" id="loc-state" placeholder="NY" maxlength="2" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>ZIP</label>
+        <input type="text" id="loc-zip" placeholder="10001" />
+      </div>
+      <div class="field">
+        <label>Timezone</label>
+        <select id="loc-tz">
+          <option value="America/New_York">Eastern (ET)</option>
+          <option value="America/Chicago">Central (CT)</option>
+          <option value="America/Denver">Mountain (MT)</option>
+          <option value="America/Los_Angeles">Pacific (PT)</option>
+          <option value="America/Anchorage">Alaska</option>
+          <option value="Pacific/Honolulu">Hawaii</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-create-loc" onclick="createLocation()">Create Location</button>
+    <div class="result" id="result-locations"></div>
   </div>
 
   <!-- SETTINGS -->
@@ -569,14 +650,105 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active',
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
-      (i === 2 && tab === 'history') || (i === 3 && tab === 'settings')
+      (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
+      (i === 4 && tab === 'settings')
     );
   });
-  ['manual','link','history','settings'].forEach(id => {
+  ['manual','link','history','locations','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
   if (tab === 'history') loadHistory();
+  if (tab === 'locations') loadLocations();
   if (tab === 'settings') loadProfiles();
+}
+
+// ── Locations ─────────────────────────────────────────────────────────────────
+async function loadLocations() {
+  const el = document.getElementById('locations-list');
+  el.innerHTML = '<div class="empty-state">Loading...</div>';
+  const activeId = profilesData.activeId;
+  if (!activeId) return;
+
+  try {
+    const data = await fetch(`/api/profiles/${activeId}/locations`).then(r => r.json());
+    if (data.error) {
+      el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}</div>`;
+      return;
+    }
+    const locs = data.locations || [];
+    if (!locs.length) {
+      el.innerHTML = '<div class="empty-state">No locations found</div>';
+      return;
+    }
+    el.innerHTML = locs.map(l => {
+      const isActive = l.isActive;
+      const statusClass = l.status === 'ACTIVE' ? 'loc-status-active' : 'loc-status-inactive';
+      const total = l.totals.charged + l.totals.links;
+      return `
+        <div class="loc-card ${isActive ? 'loc-active' : ''}">
+          <div class="loc-header">
+            <div style="flex:1">
+              <div class="loc-name">${l.name}${isActive ? ' <span style="font-size:11px;color:#006AFF">(current)</span>' : ''}</div>
+              ${l.address ? `<div class="loc-addr">📍 ${l.address}</div>` : ''}
+              <div class="loc-addr">${l.timezone || ''} · ${l.currency || ''} · ${l.type || ''}</div>
+              <div class="loc-addr" style="font-size:10px;color:#9ca3af">${l.id}</div>
+            </div>
+            <span class="loc-status-badge ${statusClass}">${l.status}</span>
+          </div>
+          <div class="loc-stats">
+            <div class="loc-stat">
+              <div class="loc-stat-value">$${total.toFixed(2)}</div>
+              <div class="loc-stat-label">Total via Terminal</div>
+            </div>
+            <div class="loc-stat">
+              <div class="loc-stat-value">$${l.totals.charged.toFixed(2)}</div>
+              <div class="loc-stat-label">Charged</div>
+            </div>
+            <div class="loc-stat">
+              <div class="loc-stat-value">${l.totals.count}</div>
+              <div class="loc-stat-label">Transactions</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${e.message}</div>`;
+  }
+}
+
+async function createLocation() {
+  const name    = document.getElementById('loc-name').value.trim();
+  const desc    = document.getElementById('loc-desc').value.trim();
+  const addr    = document.getElementById('loc-addr').value.trim();
+  const city    = document.getElementById('loc-city').value.trim();
+  const state   = document.getElementById('loc-state').value.trim();
+  const zip     = document.getElementById('loc-zip').value.trim();
+  const tz      = document.getElementById('loc-tz').value;
+  const btn     = document.getElementById('btn-create-loc');
+  const result  = document.getElementById('result-locations');
+
+  if (!name) { showResult(result, 'error', 'Location name is required.'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating...';
+  result.style.display = 'none';
+
+  const res = await fetch(`/api/profiles/${profilesData.activeId}/locations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: desc, address_line_1: addr, city, state, postal_code: zip, timezone: tz }),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showResult(result, 'success', `✅ Location "${res.location.name}" created! ID: ${res.location.id}`);
+    ['loc-name','loc-desc','loc-addr','loc-city','loc-state','loc-zip'].forEach(id => document.getElementById(id).value = '');
+    loadLocations();
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Failed to create location'));
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Create Location';
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────

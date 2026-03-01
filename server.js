@@ -97,16 +97,18 @@ function addTransaction(profileId, tx) {
 }
 
 // ── Square API proxy helper ───────────────────────────────────────────────────
-function squareGet(accessToken, path) {
+function squareRequest(method, accessToken, path, body) {
   return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
     const req = https.request({
       hostname: 'connect.squareup.com',
       path,
-      method: 'GET',
+      method,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Square-Version': '2024-01-17',
         'Content-Type': 'application/json',
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
       },
     }, res => {
       let data = '';
@@ -117,9 +119,13 @@ function squareGet(accessToken, path) {
       });
     });
     req.on('error', reject);
+    if (payload) req.write(payload);
     req.end();
   });
 }
+
+const squareGet  = (token, path)       => squareRequest('GET',  token, path, null);
+const squarePost = (token, path, body) => squareRequest('POST', token, path, body);
 
 // GET merchant info for a profile
 app.get('/api/profiles/:id/merchant', async (req, res) => {
@@ -133,6 +139,85 @@ app.get('/api/profiles/:id/merchant', async (req, res) => {
       return res.status(result.status).json({ error: result.body?.errors?.[0]?.detail || 'Square API error' });
     }
     res.json(result.body.merchant);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Locations API ─────────────────────────────────────────────────────────────
+app.get('/api/profiles/:id/locations', async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+  try {
+    const result = await squareGet(profile.accessToken, '/v2/locations');
+    if (result.status !== 200) {
+      return res.status(result.status).json({ error: result.body?.errors?.[0]?.detail || 'Square API error' });
+    }
+
+    const locations = result.body.locations || [];
+
+    // Calculate totals from stored transaction history per location
+    const totals = {};
+    for (const tx of (profile.transactions || [])) {
+      const locId = tx.locationId || profile.locationId;
+      if (!totals[locId]) totals[locId] = { charged: 0, links: 0, count: 0 };
+      if (tx.status !== 'FAILED') {
+        totals[locId].count++;
+        if (tx.type === 'charge') totals[locId].charged += tx.amount;
+        if (tx.type === 'link') totals[locId].links += tx.amount;
+      }
+    }
+
+    res.json({
+      locations: locations.map(l => ({
+        id: l.id,
+        name: l.name,
+        status: l.status,
+        address: l.address ? [l.address.address_line_1, l.address.locality, l.address.administrative_district_level_1].filter(Boolean).join(', ') : null,
+        currency: l.currency,
+        country: l.country,
+        timezone: l.timezone,
+        type: l.type,
+        isActive: l.id === profile.locationId,
+        totals: totals[l.id] || { charged: 0, links: 0, count: 0 },
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/profiles/:id/locations', async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+  const { name, address_line_1, city, state, postal_code, country, timezone, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Location name is required' });
+
+  const locationBody = {
+    location: {
+      name,
+      description: description || undefined,
+      timezone: timezone || 'America/New_York',
+      ...(address_line_1 ? {
+        address: {
+          address_line_1,
+          locality: city || undefined,
+          administrative_district_level_1: state || undefined,
+          postal_code: postal_code || undefined,
+          country: country || 'US',
+        }
+      } : {}),
+    }
+  };
+
+  try {
+    const result = await squarePost(profile.accessToken, '/v2/locations', locationBody);
+    if (result.status !== 200) {
+      return res.status(result.status).json({ error: result.body?.errors?.[0]?.detail || 'Square API error' });
+    }
+    res.json({ success: true, location: result.body.location });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
