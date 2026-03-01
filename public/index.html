@@ -1140,26 +1140,58 @@ async function fetchHistory(append) {
 
       <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
       <div class="tx-details" style="display:none">
-        <div class="tx-detail"><label>Payment ID</label><span>${p.id}</span></div>
-        <div class="tx-detail"><label>Entry Method</label><span>${p.entryMethod || '—'}</span></div>
-        <div class="tx-detail"><label>Card Brand</label><span>${p.card?.brand || '—'}</span></div>
-        <div class="tx-detail"><label>Last 4</label><span>${p.card?.last4 || '—'}</span></div>
-        <div class="tx-detail"><label>Exp</label><span>${p.card?.expMonth ? p.card.expMonth+'/'+p.card.expYear : '—'}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-bottom:2px">💳 Карта</div>
+        <div class="tx-detail"><label>Brand / Type</label><span>${p.card?.brand || '—'} ${p.card?.cardType ? '· '+p.card.cardType : ''}</span></div>
+        <div class="tx-detail"><label>Last 4 / Exp</label><span>${p.card?.last4 || '—'} ${p.card?.expMonth ? '· '+p.card.expMonth+'/'+p.card.expYear : ''}</span></div>
+        <div class="tx-detail"><label>Prepaid</label><span>${p.card?.prepaidType || '—'}</span></div>
+        <div class="tx-detail"><label>BIN</label><span>${p.card?.bin || '—'}</span></div>
         <div class="tx-detail"><label>Cardholder</label><span>${p.card?.cardholderName || '—'}</span></div>
-        <div class="tx-detail full"><label>Fingerprint</label><span>${p.card?.fingerprint || '—'}</span></div>
-        <div class="tx-detail"><label>Card ID</label><span>${p.card?.cardId || '—'}</span></div>
         <div class="tx-detail"><label>Enabled</label><span>${p.card?.enabled === null ? '—' : p.card?.enabled ? '✅ Yes' : '❌ No'}</span></div>
+        <div class="tx-detail full"><label>Fingerprint</label><span>${p.card?.fingerprint || '—'}</span></div>
+        <div class="tx-detail full"><label>Card ID</label><span>${p.card?.cardId || '—'}</span></div>
+        <div class="tx-detail full"><label>Payment Account Ref</label><span>${p.card?.paymentAccountRef || '—'}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">🔐 Авторизация</div>
+        <div class="tx-detail"><label>Entry Method</label><span>${p.entryMethod || '—'}</span></div>
+        <div class="tx-detail"><label>Card Status</label><span>${p.cardStatus || '—'}</span></div>
         <div class="tx-detail"><label>CVV Status</label><span>${p.cvvStatus || '—'}</span></div>
         <div class="tx-detail"><label>AVS Status</label><span>${p.avsStatus || '—'}</span></div>
         <div class="tx-detail"><label>Auth Code</label><span>${p.authResultCode || '—'}</span></div>
-        <div class="tx-detail"><label>Risk Level</label><span style="color:${riskColor};font-weight:700">${p.riskLevel || '—'}</span></div>
-        <div class="tx-detail"><label>Processing Fee</label><span>${fee}</span></div>
+        <div class="tx-detail full"><label>Statement Description</label><span>${p.statementDescription || '—'}</span></div>
+        <div class="tx-detail"><label>Authorized At</label><span>${p.authorizedAt ? new Date(p.authorizedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        <div class="tx-detail"><label>Captured At</label><span>${p.capturedAt ? new Date(p.capturedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        ${p.voidedAt ? `<div class="tx-detail"><label>Voided At</label><span>${new Date(p.voidedAt).toLocaleString('ru-RU')}</span></div>` : ''}
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">💰 Суммы</div>
+        <div class="tx-detail"><label>Amount</label><span>$${amt}</span></div>
+        <div class="tx-detail"><label>Approved</label><span>${p.approvedMoney ? '$'+(p.approvedMoney.amount/100).toFixed(2) : '—'}</span></div>
+        ${p.tip?.amount ? `<div class="tx-detail"><label>Tip</label><span>$${(p.tip.amount/100).toFixed(2)}</span></div>` : ''}
+        <div class="tx-detail"><label>Processing Fee</label><span>${fee} ${p.processingFeeType ? '('+p.processingFeeType+')' : ''}</span></div>
         <div class="tx-detail"><label>Refunded</label><span>${refund}</span></div>
-        ${p.tip ? `<div class="tx-detail"><label>Tip</label><span>$${(p.tip.amount/100).toFixed(2)}</span></div>` : ''}
-        <div class="tx-detail"><label>Order ID</label><span>${p.orderId || '—'}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">👤 Покупатель</div>
+        <div class="tx-detail"><label>Email</label><span>${p.buyerEmail || '—'}</span></div>
+        <div class="tx-detail"><label>Billing Name</label><span>${p.billingName || '—'}</span></div>
+        <div class="tx-detail"><label>Shipping Name</label><span>${p.shippingName || '—'}</span></div>
+        <div class="tx-detail"><label>Customer ID</label><span style="font-size:10px">${p.customerId || '—'}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">📋 Прочее</div>
+        <div class="tx-detail full"><label>Payment ID</label><span>${p.id}</span></div>
+        <div class="tx-detail"><label>Order ID</label><span style="font-size:10px">${p.orderId || '—'}</span></div>
         <div class="tx-detail"><label>Receipt #</label><span>${p.receiptNumber || '—'}</span></div>
-        <div class="tx-detail"><label>Updated</label><span>${p.updatedAt ? new Date(p.updatedAt).toLocaleString('ru-RU') : '—'}</span></div>
-        ${p.issuerAlerts?.length ? `<div class="tx-detail full"><div class="tx-alert">⚠️ Issuer Alert: ${p.issuerAlerts.map(a=>a.detail||a).join('; ')}<br><span style="color:#9ca3af">${p.issuerAlertsUpdatedAt ? new Date(p.issuerAlertsUpdatedAt).toLocaleString('ru-RU') : ''}</span></div></div>` : ''}
+        <div class="tx-detail"><label>Risk Level</label><span style="color:${riskColor};font-weight:700">${p.riskLevel || '—'}</span></div>
+        <div class="tx-detail"><label>Risk Created</label><span>${p.riskCreatedAt ? new Date(p.riskCreatedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        <div class="tx-detail"><label>App / Source</label><span>${p.appProduct || '—'}</span></div>
+        <div class="tx-detail"><label>Updated At</label><span>${p.updatedAt ? new Date(p.updatedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        ${p.delayUntil ? `<div class="tx-detail"><label>Delayed Until</label><span>${new Date(p.delayUntil).toLocaleString('ru-RU')} (${p.delayAction || ''})</span></div>` : ''}
+
+        ${p.issuerAlerts?.length ? `
+        <div class="tx-detail full">
+          <div class="tx-alert">⚠️ <strong>Issuer Alert:</strong> ${p.issuerAlerts.map(a=>a.detail||JSON.stringify(a)).join('; ')}
+          ${p.issuerAlertsUpdatedAt ? `<br><span style="color:#9ca3af">Updated: ${new Date(p.issuerAlertsUpdatedAt).toLocaleString('ru-RU')}</span>` : ''}
+          </div>
+        </div>` : ''}
       </div>
     </div>`;
   }).join('');
