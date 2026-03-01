@@ -16,6 +16,42 @@
       justify-content: center;
       padding: 20px;
     }
+
+    /* Login screen */
+    #login-screen {
+      display: none;
+      position: fixed; inset: 0;
+      background: #f4f5f7;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    #login-screen.visible { display: flex; }
+    .login-box {
+      background: white; border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+      padding: 40px 36px; width: 100%; max-width: 360px;
+      text-align: center;
+    }
+    .login-logo { font-size: 40px; margin-bottom: 12px; }
+    .login-title { font-size: 22px; font-weight: 700; color: #111827; margin-bottom: 6px; }
+    .login-sub { font-size: 14px; color: #6b7280; margin-bottom: 28px; }
+    .login-field { margin-bottom: 16px; text-align: left; }
+    .login-field label { font-size: 13px; font-weight: 500; color: #374151; display: block; margin-bottom: 6px; }
+    .login-field input {
+      width: 100%; padding: 12px 14px; border: 1px solid #d1d5db;
+      border-radius: 10px; font-size: 15px; outline: none; transition: border 0.2s;
+    }
+    .login-field input:focus { border-color: #006AFF; }
+    .login-field input.error { border-color: #ef4444; }
+    .login-error { color: #ef4444; font-size: 13px; margin-bottom: 12px; display: none; }
+    .btn-login {
+      width: 100%; padding: 14px; background: #006AFF; color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .btn-login:hover { background: #0057d4; }
+    .btn-login:disabled { background: #93c5fd; cursor: not-allowed; }
     .container {
       background: white;
       border-radius: 12px;
@@ -267,10 +303,33 @@
   </style>
 </head>
 <body>
-<div class="container">
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="visible">
+  <div class="login-box">
+    <div class="login-logo">💳</div>
+    <div class="login-title">Payment Terminal</div>
+    <div class="login-sub">Enter your password to continue</div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••"
+        onkeydown="if(event.key==='Enter') doLogin()" />
+    </div>
+    <div class="login-error" id="login-error">Incorrect password</div>
+    <button class="btn-login" id="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="container" id="app" style="display:none">
   <div class="header">
-    <h1>💳 Payment Terminal</h1>
-    <p>Manual entry or send payment link</p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h1>💳 Payment Terminal</h1>
+        <p>Manual entry or send payment link</p>
+      </div>
+      <button onclick="doLogout()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);color:white;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px">Sign Out</button>
+    </div>
     <div class="profile-bar">
       <label>Business:</label>
       <select class="profile-select" id="profile-switcher" onchange="switchProfile(this.value)">
@@ -445,7 +504,21 @@
 
     <hr class="divider" />
 
-    <div class="section-title" id="form-title">➕ Add Business</div>
+    <div id="oauth-connect-block" style="display:none;margin-bottom:20px">
+      <div class="section-title">Connect via Square OAuth</div>
+      <div class="field">
+        <label>Business Name (for the new profile)</label>
+        <input type="text" id="oauth-name" placeholder="e.g. My Salon" />
+      </div>
+      <button class="btn btn-primary" onclick="connectSquare()" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;gap:10px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0zm0 4.5a7.5 7.5 0 110 15 7.5 7.5 0 010-15z"/></svg>
+        Connect Square Account
+      </button>
+      <div style="font-size:12px;color:#6b7280;margin-top:8px;text-align:center">Вы будете перенаправлены на страницу Square для авторизации</div>
+      <hr class="divider" />
+    </div>
+
+    <div class="section-title" id="form-title">➕ Add Manually</div>
     <input type="hidden" id="edit-id" />
     <div class="field">
       <label>Business Name <span class="req">*</span></label>
@@ -487,8 +560,96 @@ let card;
 let appId, locId;
 let profilesData = { activeId: null, profiles: [] };
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function checkAuth() {
+  const res = await fetch('/api/auth-status').then(r => r.json());
+  if (res.authenticated) {
+    showApp();
+  } else {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  document.getElementById('login-screen').classList.add('visible');
+  document.getElementById('app').style.display = 'none';
+  setTimeout(() => document.getElementById('login-password').focus(), 100);
+}
+
+function showApp() {
+  document.getElementById('login-screen').classList.remove('visible');
+  document.getElementById('app').style.display = 'block';
+  init();
+}
+
+async function doLogin() {
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('btn-login');
+  const err = document.getElementById('login-error');
+  const input = document.getElementById('login-password');
+  err.style.display = 'none';
+  input.classList.remove('error');
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showApp();
+  } else {
+    err.style.display = 'block';
+    input.classList.add('error');
+    input.value = '';
+    input.focus();
+  }
+  btn.disabled = false;
+  btn.textContent = 'Sign In';
+}
+
+async function doLogout() {
+  await fetch('/api/logout', { method: 'POST' });
+  showLogin();
+}
+
+// ── OAuth ─────────────────────────────────────────────────────────────────────
+function connectSquare() {
+  const name = document.getElementById('oauth-name').value.trim() || 'New Business';
+  window.location.href = `/auth/square?name=${encodeURIComponent(name)}`;
+}
+
+function checkOAuthResult() {
+  const params = new URLSearchParams(window.location.search);
+  const oauth = params.get('oauth');
+  if (!oauth) return;
+  // Clean URL
+  window.history.replaceState({}, '', '/');
+  if (oauth === 'success') {
+    const name = params.get('name') || 'New Business';
+    setTimeout(() => {
+      showResult(document.getElementById('result-settings'), 'success', `✅ "${name}" подключён через Square OAuth!`);
+      switchTab('settings');
+    }, 500);
+  } else if (oauth === 'error') {
+    setTimeout(() => {
+      showResult(document.getElementById('result-settings'), 'error', '❌ OAuth error: ' + (params.get('msg') || 'Unknown'));
+      switchTab('settings');
+    }, 500);
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
+  // Check OAuth result in URL
+  checkOAuthResult();
+  // Check if OAuth is configured
+  const oauthCfg = await fetch('/api/oauth-config').then(r => r.json());
+  if (oauthCfg.enabled) {
+    document.getElementById('oauth-connect-block').style.display = 'block';
+  }
   await loadProfiles();
   await initSquare();
 }
@@ -743,7 +904,7 @@ function switchTab(tab) {
   if (tab === 'settings')  loadProfiles();
 }
 
-// ── Report ────────────────────────────────────────────────────────────────────
+// ── Report ──────────────────────────────────────────────────────────────────── ────────────────────────────────────────────────────────────────────
 let currentPeriod = 'month';
 
 function setPeriod(period) {
@@ -1071,7 +1232,8 @@ function showResult(el, type, msg) {
   el.style.display = 'block';
 }
 
-init();
+checkAuth();
 </script>
 </body>
 </html>
+
