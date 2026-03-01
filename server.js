@@ -385,6 +385,17 @@ app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// DEBUG: raw payment object from Square
+app.get('/api/profiles/:id/payments/raw', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const locationId = req.query.location_id || profile.locationId;
+  try {
+    const r = await squareGet(profile.accessToken, `/v2/payments?location_id=${locationId}&limit=1&sort_order=DESC`);
+    res.json(r.body);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET bank accounts for a profile
 app.get('/api/profiles/:id/bank-accounts', requireAuth, async (req, res) => {
   const profile = store.profiles.find(p => p.id === req.params.id);
