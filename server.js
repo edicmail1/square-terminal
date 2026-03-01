@@ -144,6 +144,114 @@ app.get('/api/profiles/:id/merchant', async (req, res) => {
   }
 });
 
+// ── Reporting API ─────────────────────────────────────────────────────────────
+app.get('/api/profiles/:id/report', async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+  const period = req.query.period || 'month'; // today | week | month | custom
+  const now = new Date();
+  let beginTime;
+
+  if (period === 'today') {
+    beginTime = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (period === 'week') {
+    beginTime = new Date(now - 7 * 24 * 60 * 60 * 1000);
+  } else if (period === 'month') {
+    beginTime = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (period === 'custom' && req.query.begin) {
+    beginTime = new Date(req.query.begin);
+  } else {
+    beginTime = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  const endTime = req.query.end ? new Date(req.query.end) : now;
+
+  try {
+    // Fetch all locations first
+    const locResult = await squareGet(profile.accessToken, '/v2/locations');
+    if (locResult.status !== 200) {
+      return res.status(locResult.status).json({ error: locResult.body?.errors?.[0]?.detail || 'Failed to fetch locations' });
+    }
+    const locations = locResult.body.locations || [];
+
+    // Fetch payments for each active location
+    const reportByLocation = [];
+
+    for (const loc of locations) {
+      if (loc.status !== 'ACTIVE') {
+        reportByLocation.push({ locationId: loc.id, locationName: loc.name, status: loc.status, payments: [] });
+        continue;
+      }
+
+      let allPayments = [];
+      let cursor = null;
+
+      do {
+        const params = new URLSearchParams({
+          location_id: loc.id,
+          begin_time: beginTime.toISOString(),
+          end_time: endTime.toISOString(),
+          limit: '100',
+          sort_order: 'DESC',
+        });
+        if (cursor) params.set('cursor', cursor);
+
+        const result = await squareGet(profile.accessToken, `/v2/payments?${params}`);
+        if (result.status !== 200) break;
+
+        const payments = result.body.payments || [];
+        allPayments = allPayments.concat(payments);
+        cursor = result.body.cursor || null;
+
+        // Stop at 500 payments per location to avoid timeout
+        if (allPayments.length >= 500) break;
+      } while (cursor);
+
+      // Aggregate
+      let totalAmount = 0, totalFees = 0, totalRefunds = 0, countOk = 0, countFailed = 0;
+      for (const p of allPayments) {
+        if (p.status === 'COMPLETED') {
+          totalAmount += Number(p.amount_money?.amount || 0);
+          totalFees   += Number(p.processing_fee?.[0]?.amount_money?.amount || 0);
+          countOk++;
+        } else if (p.status === 'FAILED' || p.status === 'CANCELED') {
+          countFailed++;
+        }
+        if (p.refunded_money) {
+          totalRefunds += Number(p.refunded_money?.amount || 0);
+        }
+      }
+
+      const currency = loc.currency || 'USD';
+      const fmt = v => (v / 100).toFixed(2);
+
+      reportByLocation.push({
+        locationId: loc.id,
+        locationName: loc.name,
+        status: loc.status,
+        currency,
+        totalAmount:   fmt(totalAmount),
+        totalFees:     fmt(totalFees),
+        totalRefunds:  fmt(totalRefunds),
+        net:           fmt(totalAmount - totalFees - totalRefunds),
+        countOk,
+        countFailed,
+        totalPayments: allPayments.length,
+      });
+    }
+
+    res.json({
+      period,
+      beginTime: beginTime.toISOString(),
+      endTime: endTime.toISOString(),
+      locations: reportByLocation,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Locations API ─────────────────────────────────────────────────────────────
 app.get('/api/profiles/:id/locations', async (req, res) => {
   const profile = store.profiles.find(p => p.id === req.params.id);

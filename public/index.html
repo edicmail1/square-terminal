@@ -182,6 +182,53 @@
     .status-dot.active { background: #10b981; }
     .status-dot.inactive { background: #ef4444; }
 
+    /* Report */
+    .report-toolbar { margin-bottom: 16px; }
+    .period-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .period-btn {
+      padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 20px;
+      background: white; font-size: 13px; font-weight: 500; cursor: pointer;
+      color: #374151; transition: all 0.15s;
+    }
+    .period-btn.active { background: #006AFF; color: white; border-color: #006AFF; }
+    .period-btn:hover:not(.active) { border-color: #006AFF; color: #006AFF; }
+    .report-totals {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 16px;
+    }
+    .report-total-card {
+      background: #f9fafb; border: 1px solid #e5e7eb;
+      border-radius: 8px; padding: 12px 14px;
+    }
+    .report-total-card.highlight { background: #eff6ff; border-color: #93c5fd; }
+    .report-total-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+    .report-total-value { font-size: 20px; font-weight: 700; color: #111827; }
+    .report-total-card.highlight .report-total-value { color: #006AFF; }
+    .report-loc-card {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .report-loc-card.is-current { border-color: #006AFF; }
+    .report-loc-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 13px; background: #f9fafb; cursor: pointer;
+    }
+    .report-loc-card.is-current .report-loc-header { background: #eff6ff; }
+    .report-loc-name { font-size: 14px; font-weight: 600; color: #111827; }
+    .report-loc-total { font-size: 16px; font-weight: 700; color: #006AFF; }
+    .report-loc-body {
+      display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+      border-top: 1px solid #e5e7eb;
+    }
+    .report-stat {
+      padding: 8px 10px; text-align: center;
+      border-right: 1px solid #e5e7eb; font-size: 12px;
+    }
+    .report-stat:last-child { border-right: none; }
+    .report-stat-val { font-weight: 700; color: #111827; font-size: 13px; }
+    .report-stat-lbl { color: #9ca3af; font-size: 10px; margin-top: 1px; }
+    .report-inactive { color: #9ca3af; font-size: 12px; font-style: italic; }
+
     /* Locations */
     .loc-card {
       border: 1px solid #e5e7eb; border-radius: 8px;
@@ -238,6 +285,7 @@
     <div class="tab" onclick="switchTab('link')">Payment Link</div>
     <div class="tab" onclick="switchTab('history')">📋 History</div>
     <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
+    <div class="tab" onclick="switchTab('report')">📊 Report</div>
     <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
   </div>
 
@@ -306,6 +354,37 @@
     <div class="tx-list" id="tx-list">
       <div class="empty-state">Loading...</div>
     </div>
+  </div>
+
+  <!-- REPORT -->
+  <div class="panel" id="panel-report">
+    <div class="report-toolbar">
+      <div class="period-btns">
+        <button class="period-btn active" data-period="today" onclick="setPeriod('today')">Today</button>
+        <button class="period-btn" data-period="week" onclick="setPeriod('week')">7 Days</button>
+        <button class="period-btn" data-period="month" onclick="setPeriod('month')">This Month</button>
+        <button class="period-btn" data-period="custom" onclick="setPeriod('custom')">Custom</button>
+      </div>
+      <div id="custom-dates" style="display:none;margin-top:10px;display:none">
+        <div class="row">
+          <div class="field">
+            <label>From</label>
+            <input type="date" id="report-from" />
+          </div>
+          <div class="field">
+            <label>To</label>
+            <input type="date" id="report-to" />
+          </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:0" onclick="loadReport()">Apply</button>
+      </div>
+    </div>
+
+    <div id="report-summary" style="display:none">
+      <div class="report-totals" id="report-totals"></div>
+    </div>
+
+    <div id="report-list"><div class="empty-state">Select a period to load report</div></div>
   </div>
 
   <!-- LOCATIONS -->
@@ -651,15 +730,124 @@ function switchTab(tab) {
     t.classList.toggle('active',
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
       (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
-      (i === 4 && tab === 'settings')
+      (i === 4 && tab === 'report')  || (i === 5 && tab === 'settings')
     );
   });
-  ['manual','link','history','locations','settings'].forEach(id => {
+  ['manual','link','history','locations','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
-  if (tab === 'history') loadHistory();
+  if (tab === 'history')   loadHistory();
   if (tab === 'locations') loadLocations();
-  if (tab === 'settings') loadProfiles();
+  if (tab === 'report')    loadReport();
+  if (tab === 'settings')  loadProfiles();
+}
+
+// ── Report ────────────────────────────────────────────────────────────────────
+let currentPeriod = 'month';
+
+function setPeriod(period) {
+  currentPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.period === period)
+  );
+  const customDates = document.getElementById('custom-dates');
+  customDates.style.display = period === 'custom' ? 'block' : 'none';
+  if (period !== 'custom') loadReport();
+}
+
+async function loadReport() {
+  const el = document.getElementById('report-list');
+  const summaryEl = document.getElementById('report-summary');
+  el.innerHTML = '<div class="empty-state"><span class="spinner" style="border-color:rgba(0,106,255,0.3);border-top-color:#006AFF"></span> Loading from Square...</div>';
+  summaryEl.style.display = 'none';
+
+  const params = new URLSearchParams({ period: currentPeriod });
+  if (currentPeriod === 'custom') {
+    const from = document.getElementById('report-from').value;
+    const to   = document.getElementById('report-to').value;
+    if (!from || !to) { el.innerHTML = '<div class="empty-state">Select date range</div>'; return; }
+    params.set('begin', from);
+    params.set('end', to + 'T23:59:59');
+  }
+
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/report?${params}`).then(r => r.json());
+    if (data.error) {
+      el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}<br><small>Your Access Token may need PAYMENTS_READ permission</small></div>`;
+      return;
+    }
+
+    const activeLocs = data.locations.filter(l => l.status === 'ACTIVE');
+    const inactiveLocs = data.locations.filter(l => l.status !== 'ACTIVE');
+
+    // Grand totals
+    const grandTotal   = activeLocs.reduce((s, l) => s + parseFloat(l.totalAmount  || 0), 0);
+    const grandNet     = activeLocs.reduce((s, l) => s + parseFloat(l.net          || 0), 0);
+    const grandFees    = activeLocs.reduce((s, l) => s + parseFloat(l.totalFees    || 0), 0);
+    const grandRefunds = activeLocs.reduce((s, l) => s + parseFloat(l.totalRefunds || 0), 0);
+    const grandCount   = activeLocs.reduce((s, l) => s + (l.countOk || 0), 0);
+
+    const periodLabel = { today: 'Today', week: 'Last 7 Days', month: 'This Month', custom: 'Custom Range' }[currentPeriod];
+
+    document.getElementById('report-totals').innerHTML = `
+      <div class="report-total-card highlight" style="grid-column:span 2">
+        <div class="report-total-label">Total Revenue · ${periodLabel}</div>
+        <div class="report-total-value">$${grandTotal.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Net (after fees)</div>
+        <div class="report-total-value">$${grandNet.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Processing Fees</div>
+        <div class="report-total-value" style="color:#ef4444">-$${grandFees.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Refunds</div>
+        <div class="report-total-value" style="color:#f59e0b">-$${grandRefunds.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Completed Payments</div>
+        <div class="report-total-value">${grandCount}</div>
+      </div>`;
+    summaryEl.style.display = 'block';
+
+    el.innerHTML = activeLocs.map(l => {
+      const isCurrent = l.locationId === (profilesData.profiles.find(p => p.id === profilesData.activeId)?.locationId);
+      return `
+        <div class="report-loc-card ${isCurrent ? 'is-current' : ''}">
+          <div class="report-loc-header">
+            <div>
+              <div class="report-loc-name">${l.locationName}${isCurrent ? ' <span style="font-size:11px;color:#006AFF">(current)</span>' : ''}</div>
+              <div style="font-size:11px;color:#9ca3af">${l.countOk} payments · ${l.currency}</div>
+            </div>
+            <div class="report-loc-total">$${l.totalAmount}</div>
+          </div>
+          <div class="report-loc-body">
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#10b981">$${l.net}</div>
+              <div class="report-stat-lbl">Net</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#ef4444">-$${l.totalFees}</div>
+              <div class="report-stat-lbl">Fees</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#f59e0b">-$${l.totalRefunds}</div>
+              <div class="report-stat-lbl">Refunds</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#ef4444">${l.countFailed}</div>
+              <div class="report-stat-lbl">Failed</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('') +
+    (inactiveLocs.length ? `<div class="report-inactive" style="margin-top:8px">+ ${inactiveLocs.length} inactive location(s) skipped</div>` : '');
+
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${e.message}</div>`;
+  }
 }
 
 // ── Locations ─────────────────────────────────────────────────────────────────
