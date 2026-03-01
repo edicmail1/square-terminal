@@ -159,6 +159,8 @@ app.get('/api/profiles/:id/report', async (req, res) => {
     beginTime = new Date(now - 7 * 24 * 60 * 60 * 1000);
   } else if (period === 'month') {
     beginTime = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (period === 'year') {
+    beginTime = new Date(now.getFullYear(), 0, 1);
   } else if (period === 'custom' && req.query.begin) {
     beginTime = new Date(req.query.begin);
   } else {

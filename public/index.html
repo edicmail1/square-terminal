@@ -363,6 +363,7 @@
         <button class="period-btn active" data-period="today" onclick="setPeriod('today')">Today</button>
         <button class="period-btn" data-period="week" onclick="setPeriod('week')">7 Days</button>
         <button class="period-btn" data-period="month" onclick="setPeriod('month')">This Month</button>
+        <button class="period-btn" data-period="year" onclick="setPeriod('year')">This Year</button>
         <button class="period-btn" data-period="custom" onclick="setPeriod('custom')">Custom</button>
       </div>
       <div id="custom-dates" style="display:none;margin-top:10px;display:none">
@@ -787,7 +788,7 @@ async function loadReport() {
     const grandRefunds = activeLocs.reduce((s, l) => s + parseFloat(l.totalRefunds || 0), 0);
     const grandCount   = activeLocs.reduce((s, l) => s + (l.countOk || 0), 0);
 
-    const periodLabel = { today: 'Today', week: 'Last 7 Days', month: 'This Month', custom: 'Custom Range' }[currentPeriod];
+    const periodLabel = { today: 'Today', week: 'Last 7 Days', month: 'This Month', year: 'This Year', custom: 'Custom Range' }[currentPeriod];
 
     document.getElementById('report-totals').innerHTML = `
       <div class="report-total-card highlight" style="grid-column:span 2">
