@@ -32,69 +32,51 @@
     .header h1 { font-size: 20px; font-weight: 600; }
     .header p { font-size: 12px; opacity: 0.8; margin-top: 3px; }
     .profile-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 12px;
-      background: rgba(255,255,255,0.15);
-      border-radius: 8px;
-      padding: 8px 12px;
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 12px; background: rgba(255,255,255,0.15);
+      border-radius: 8px; padding: 8px 12px;
     }
-    .profile-bar label {
-      font-size: 12px;
-      color: rgba(255,255,255,0.8);
-      white-space: nowrap;
-    }
+    .profile-bar label { font-size: 12px; color: rgba(255,255,255,0.8); white-space: nowrap; }
     .profile-select {
-      flex: 1;
-      background: rgba(255,255,255,0.2);
-      border: 1px solid rgba(255,255,255,0.3);
-      border-radius: 6px;
-      color: white;
-      font-size: 14px;
-      font-weight: 600;
-      padding: 5px 8px;
-      cursor: pointer;
-      outline: none;
+      flex: 1; background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+      color: white; font-size: 14px; font-weight: 600;
+      padding: 5px 8px; cursor: pointer; outline: none;
     }
-    .profile-select option { background: #006AFF; color: white; }
+    .profile-select option { background: #1d4ed8; color: white; }
+    .profile-limit {
+      font-size: 11px; color: rgba(255,255,255,0.7);
+      margin-top: 5px; padding-left: 2px;
+    }
     .tabs {
-      display: flex;
-      border-bottom: 1px solid #e5e7eb;
+      display: flex; border-bottom: 1px solid #e5e7eb;
+      overflow-x: auto;
     }
     .tab {
-      flex: 1;
-      padding: 13px 8px;
-      text-align: center;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      color: #6b7280;
-      border-bottom: 2px solid transparent;
-      transition: all 0.2s;
+      flex: 1; padding: 12px 6px; text-align: center;
+      font-size: 12px; font-weight: 500; cursor: pointer;
+      color: #6b7280; border-bottom: 2px solid transparent;
+      transition: all 0.2s; white-space: nowrap; min-width: 70px;
     }
     .tab.active { color: #006AFF; border-bottom-color: #006AFF; }
-    .panel { display: none; padding: 22px 28px; }
+    .panel { display: none; padding: 20px 24px; max-height: 70vh; overflow-y: auto; }
     .panel.active { display: block; }
-    .field { margin-bottom: 15px; }
+    .field { margin-bottom: 14px; }
     label {
-      display: block;
-      font-size: 13px;
-      font-weight: 500;
-      color: #374151;
-      margin-bottom: 5px;
+      display: block; font-size: 13px; font-weight: 500;
+      color: #374151; margin-bottom: 5px;
     }
+    label .req { color: #ef4444; margin-left: 2px; }
     input[type="text"], input[type="number"], input[type="email"],
-    input[type="password"], select {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      font-size: 14px;
-      outline: none;
-      transition: border 0.2s;
+    input[type="password"], select, textarea {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      font-size: 14px; outline: none; transition: border 0.2s;
+      font-family: inherit;
     }
-    input:focus, select:focus { border-color: #006AFF; }
+    input:focus, select:focus, textarea:focus { border-color: #006AFF; }
+    input.error, textarea.error { border-color: #ef4444; }
+    .field-error { font-size: 11px; color: #ef4444; margin-top: 3px; }
     .amount-wrap { position: relative; }
     .amount-wrap span {
       position: absolute; left: 12px; top: 50%;
@@ -102,10 +84,8 @@
     }
     .amount-wrap input { padding-left: 24px; }
     #card-container {
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      padding: 10px 12px;
-      min-height: 44px;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      padding: 10px 12px; min-height: 44px;
     }
     .btn {
       width: 100%; padding: 13px; border: none; border-radius: 8px;
@@ -115,20 +95,19 @@
     .btn-primary { background: #006AFF; color: white; }
     .btn-primary:hover { background: #0057d4; }
     .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
-    .btn-link { background: #10b981; color: white; }
-    .btn-link:hover { background: #059669; }
-    .btn-link:disabled { background: #6ee7b7; cursor: not-allowed; }
+    .btn-green { background: #10b981; color: white; }
+    .btn-green:hover { background: #059669; }
+    .btn-green:disabled { background: #6ee7b7; cursor: not-allowed; }
     .btn-danger { background: #ef4444; color: white; }
     .btn-danger:hover { background: #dc2626; }
-    .btn-sm {
-      width: auto; padding: 6px 14px; font-size: 13px; margin-top: 0;
-    }
+    .btn-sm { width: auto; padding: 6px 12px; font-size: 12px; margin-top: 0; }
     .result {
       margin-top: 14px; padding: 13px; border-radius: 8px;
-      font-size: 14px; display: none;
+      font-size: 14px; display: none; line-height: 1.5;
     }
     .result.success { background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
     .result.error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+    .result.warn { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
     .link-box { display: flex; gap: 8px; margin-top: 10px; }
     .link-box input { flex: 1; background: #f9fafb; font-size: 13px; }
     .btn-copy {
@@ -145,24 +124,49 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Settings - profile list */
-    .profile-list { margin-bottom: 20px; }
-    .profile-item {
-      display: flex; align-items: center; gap: 10px;
+    /* History */
+    .tx-list { }
+    .tx-item {
       padding: 10px 12px; border: 1px solid #e5e7eb;
-      border-radius: 8px; margin-bottom: 8px;
-      background: #f9fafb;
+      border-radius: 8px; margin-bottom: 8px; font-size: 13px;
     }
-    .profile-item.is-active { border-color: #006AFF; background: #eff6ff; }
-    .profile-item-name { flex: 1; font-size: 14px; font-weight: 600; color: #111827; }
-    .profile-item-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
-    .badge-active {
-      font-size: 11px; background: #006AFF; color: white;
-      padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+    .tx-item.failed { border-color: #fca5a5; background: #fef2f2; }
+    .tx-item.link-created { border-color: #a7f3d0; background: #ecfdf5; }
+    .tx-row { display: flex; justify-content: space-between; align-items: center; }
+    .tx-amount { font-size: 15px; font-weight: 700; color: #111827; }
+    .tx-badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 20px;
+      font-weight: 600;
     }
-    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
-    .section-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 12px; }
-    .hint { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+    .badge-ok { background: #d1fae5; color: #065f46; }
+    .badge-fail { background: #fee2e2; color: #991b1b; }
+    .badge-link { background: #dbeafe; color: #1e40af; }
+    .tx-note { color: #6b7280; margin-top: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tx-date { color: #9ca3af; font-size: 11px; margin-top: 2px; }
+    .tx-receipt { font-size: 12px; color: #006AFF; text-decoration: none; }
+    .tx-receipt:hover { text-decoration: underline; }
+    .empty-state { text-align: center; color: #9ca3af; padding: 40px 0; font-size: 14px; }
+
+    /* Settings */
+    .profile-list { margin-bottom: 20px; }
+    .profile-card {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      margin-bottom: 8px; overflow: hidden;
+    }
+    .profile-card.is-active { border-color: #006AFF; }
+    .profile-card-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; background: #f9fafb;
+    }
+    .profile-card.is-active .profile-card-header { background: #eff6ff; }
+    .profile-card-name { flex: 1; font-size: 14px; font-weight: 600; color: #111827; }
+    .profile-card-sub { font-size: 11px; color: #6b7280; }
+    .badge-active { font-size: 11px; background: #006AFF; color: white; padding: 2px 8px; border-radius: 20px; }
+    .profile-card-actions { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid #e5e7eb; }
+
+    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 18px 0; }
+    .section-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .hint { font-size: 11px; color: #9ca3af; margin-top: 3px; }
     .row { display: flex; gap: 10px; }
     .row .field { flex: 1; }
   </style>
@@ -178,38 +182,44 @@
         <option>Loading...</option>
       </select>
     </div>
+    <div class="profile-limit" id="profile-limit-info"></div>
   </div>
 
   <div class="tabs">
     <div class="tab active" onclick="switchTab('manual')">Manual Entry</div>
     <div class="tab" onclick="switchTab('link')">Payment Link</div>
+    <div class="tab" onclick="switchTab('history')">📋 History</div>
     <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
   </div>
 
   <!-- MANUAL ENTRY -->
   <div class="panel active" id="panel-manual">
     <div class="field">
-      <label>Amount</label>
+      <label>Amount <span class="req">*</span></label>
       <div class="amount-wrap">
         <span>$</span>
         <input type="number" id="m-amount" placeholder="0.00" min="0.01" step="0.01" />
       </div>
+      <div class="field-error" id="err-m-amount"></div>
+    </div>
+    <div class="field">
+      <label>Description / Note <span class="req">*</span></label>
+      <input type="text" id="m-note" placeholder="Service name, invoice #, etc." />
+      <div class="field-error" id="err-m-note"></div>
     </div>
     <div class="field">
       <label>Customer Name (optional)</label>
       <input type="text" id="m-name" placeholder="John Smith" />
     </div>
     <div class="field">
-      <label>Note (optional)</label>
-      <input type="text" id="m-note" placeholder="Invoice #123, service description..." />
-    </div>
-    <div class="field">
-      <label>Customer Email (for receipt)</label>
+      <label>Customer Email <span class="req">*</span></label>
       <input type="email" id="m-email" placeholder="customer@example.com" />
+      <div class="field-error" id="err-m-email"></div>
     </div>
     <div class="field">
-      <label>ZIP Code (recommended)</label>
+      <label>ZIP Code <span class="req">*</span></label>
       <input type="text" id="m-zip" placeholder="10001" maxlength="10" style="max-width:160px" />
+      <div class="field-error" id="err-m-zip"></div>
     </div>
     <div class="field">
       <label>Card</label>
@@ -222,58 +232,72 @@
   <!-- PAYMENT LINK -->
   <div class="panel" id="panel-link">
     <div class="field">
-      <label>Amount</label>
+      <label>Amount <span class="req">*</span></label>
       <div class="amount-wrap">
         <span>$</span>
         <input type="number" id="l-amount" placeholder="0.00" min="0.01" step="0.01" />
       </div>
+      <div class="field-error" id="err-l-amount"></div>
     </div>
     <div class="field">
-      <label>Title (optional)</label>
-      <input type="text" id="l-title" placeholder="Payment for services" />
+      <label>Title <span class="req">*</span></label>
+      <input type="text" id="l-title" placeholder="Service name, invoice #..." />
+      <div class="field-error" id="err-l-title"></div>
     </div>
     <div class="field">
       <label>Description (optional)</label>
       <input type="text" id="l-desc" placeholder="Additional details..." />
     </div>
-    <button class="btn btn-link" id="btn-link" onclick="createLink()">Generate Link</button>
+    <button class="btn btn-green" id="btn-link" onclick="createLink()">Generate Link</button>
     <div class="result" id="result-link"></div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="panel" id="panel-history">
+    <div class="tx-list" id="tx-list">
+      <div class="empty-state">Loading...</div>
+    </div>
   </div>
 
   <!-- SETTINGS -->
   <div class="panel" id="panel-settings">
-
-    <!-- Profile list -->
     <div class="section-title">Your Businesses</div>
     <div class="profile-list" id="profile-list">Loading...</div>
 
     <hr class="divider" />
 
-    <!-- Add / Edit form -->
     <div class="section-title" id="form-title">➕ Add Business</div>
     <input type="hidden" id="edit-id" />
     <div class="field">
-      <label>Business Name</label>
+      <label>Business Name <span class="req">*</span></label>
       <input type="text" id="s-name" placeholder="e.g. Acme Salon" />
     </div>
     <div class="field">
       <label>Access Token</label>
-      <input type="password" id="s-token" placeholder="EAAl..." autocomplete="off" />
+      <input type="password" id="s-token" placeholder="EAAl... (leave blank to keep current)" autocomplete="off" />
       <div class="hint" id="s-token-hint"></div>
     </div>
     <div class="row">
       <div class="field">
-        <label>Application ID</label>
+        <label>Application ID <span class="req">*</span></label>
         <input type="text" id="s-appid" placeholder="sq0idp-..." autocomplete="off" />
       </div>
       <div class="field">
-        <label>Location ID</label>
+        <label>Location ID <span class="req">*</span></label>
         <input type="text" id="s-locid" placeholder="L..." autocomplete="off" />
       </div>
     </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn btn-primary" id="btn-save-profile" onclick="saveProfile()" style="flex:1">Save Business</button>
-      <button class="btn btn-sm" id="btn-cancel-edit" onclick="cancelEdit()" style="display:none;background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Cancel</button>
+    <div class="field">
+      <label>Max Amount per Transaction (optional)</label>
+      <div class="amount-wrap">
+        <span>$</span>
+        <input type="number" id="s-maxamount" placeholder="No limit" min="0.01" step="0.01" />
+      </div>
+      <div class="hint">Transactions above this amount will be blocked</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary" onclick="saveProfile()" style="flex:1">Save Business</button>
+      <button class="btn btn-sm" id="btn-cancel-edit" onclick="cancelEdit()" style="display:none;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:13px 16px">Cancel</button>
     </div>
     <div class="result" id="result-settings"></div>
   </div>
@@ -284,7 +308,7 @@ let card;
 let appId, locId;
 let profilesData = { activeId: null, profiles: [] };
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   await loadProfiles();
   await initSquare();
@@ -301,11 +325,22 @@ async function initSquare() {
   await card.attach('#card-container');
 }
 
-// ── Profiles ─────────────────────────────────────────────────────────────────
+// ── Profiles ──────────────────────────────────────────────────────────────────
 async function loadProfiles() {
   profilesData = await fetch('/api/profiles').then(r => r.json());
   renderProfileSwitcher();
   renderProfileList();
+  updateLimitInfo();
+}
+
+function updateLimitInfo() {
+  const active = profilesData.profiles.find(p => p.id === profilesData.activeId);
+  const el = document.getElementById('profile-limit-info');
+  if (active && active.maxAmount) {
+    el.textContent = `Max per transaction: $${active.maxAmount.toFixed(2)}`;
+  } else {
+    el.textContent = '';
+  }
 }
 
 function renderProfileSwitcher() {
@@ -317,16 +352,28 @@ function renderProfileSwitcher() {
 
 function renderProfileList() {
   const el = document.getElementById('profile-list');
-  if (!profilesData.profiles.length) { el.innerHTML = '<div style="color:#6b7280;font-size:13px">No profiles yet.</div>'; return; }
+  if (!profilesData.profiles.length) {
+    el.innerHTML = '<div style="color:#6b7280;font-size:13px">No profiles yet.</div>';
+    return;
+  }
   el.innerHTML = profilesData.profiles.map(p => `
-    <div class="profile-item ${p.active ? 'is-active' : ''}">
-      <div style="flex:1">
-        <div class="profile-item-name">${p.name}</div>
-        <div class="profile-item-sub">${p.applicationId} · ${p.locationId}</div>
+    <div class="profile-card ${p.active ? 'is-active' : ''}">
+      <div class="profile-card-header">
+        <div style="flex:1">
+          <div class="profile-card-name">${p.name}</div>
+          <div class="profile-card-sub">
+            ${p.applicationId}
+            ${p.maxAmount ? ` · Limit: $${p.maxAmount.toFixed(2)}` : ''}
+            · ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
+          </div>
+        </div>
+        ${p.active ? '<span class="badge-active">Active</span>' : ''}
       </div>
-      ${p.active ? '<span class="badge-active">Active</span>' : ''}
-      <button class="btn btn-sm btn-primary" onclick="editProfile('${p.id}')" style="padding:5px 10px;font-size:12px">Edit</button>
-      ${!p.active ? `<button class="btn btn-sm btn-danger" onclick="deleteProfile('${p.id}')" style="padding:5px 10px;font-size:12px">✕</button>` : ''}
+      <div class="profile-card-actions">
+        ${!p.active ? `<button class="btn btn-primary btn-sm" onclick="switchProfile('${p.id}')">Activate</button>` : ''}
+        <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
+        ${!p.active ? `<button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>` : ''}
+      </div>
     </div>
   `).join('');
 }
@@ -336,7 +383,9 @@ async function switchProfile(id) {
   if (res.success) {
     profilesData.activeId = id;
     profilesData.profiles.forEach(p => p.active = p.id === id);
+    renderProfileSwitcher();
     renderProfileList();
+    updateLimitInfo();
     await initSquare();
   }
 }
@@ -348,19 +397,18 @@ function editProfile(id) {
   document.getElementById('s-name').value = p.name;
   document.getElementById('s-appid').value = p.applicationId;
   document.getElementById('s-locid').value = p.locationId;
+  document.getElementById('s-maxamount').value = p.maxAmount || '';
   document.getElementById('s-token').value = '';
-  document.getElementById('s-token-hint').textContent = 'Token: ' + p.accessTokenMasked + ' (leave blank to keep)';
+  document.getElementById('s-token-hint').textContent = 'Current: ' + p.accessTokenMasked;
   document.getElementById('form-title').textContent = '✏️ Edit Business';
   document.getElementById('btn-cancel-edit').style.display = 'inline-block';
-  document.getElementById('panel-settings').scrollTop = 9999;
+  document.getElementById('panel-settings').scrollTo({ top: 9999, behavior: 'smooth' });
 }
 
 function cancelEdit() {
-  document.getElementById('edit-id').value = '';
-  document.getElementById('s-name').value = '';
-  document.getElementById('s-appid').value = '';
-  document.getElementById('s-locid').value = '';
-  document.getElementById('s-token').value = '';
+  ['edit-id','s-name','s-appid','s-locid','s-token','s-maxamount'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
   document.getElementById('s-token-hint').textContent = '';
   document.getElementById('form-title').textContent = '➕ Add Business';
   document.getElementById('btn-cancel-edit').style.display = 'none';
@@ -372,6 +420,7 @@ async function saveProfile() {
   const token = document.getElementById('s-token').value.trim();
   const appId = document.getElementById('s-appid').value.trim();
   const locId = document.getElementById('s-locid').value.trim();
+  const maxAmount = document.getElementById('s-maxamount').value.trim();
   const result = document.getElementById('result-settings');
 
   if (!name || !appId || !locId) {
@@ -386,6 +435,7 @@ async function saveProfile() {
   const body = { name, applicationId: appId, locationId: locId };
   if (id) body.id = id;
   if (token) body.accessToken = token;
+  if (maxAmount) body.maxAmount = parseFloat(maxAmount);
 
   const res = await fetch('/api/profiles', {
     method: 'POST',
@@ -403,38 +453,95 @@ async function saveProfile() {
 }
 
 async function deleteProfile(id) {
-  if (!confirm('Delete this business profile?')) return;
+  if (!confirm('Delete this business profile and all its history?')) return;
   const res = await fetch(`/api/profiles/${id}`, { method: 'DELETE' }).then(r => r.json());
   if (res.success) await loadProfiles();
   else alert(res.error || 'Delete failed');
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const activeId = profilesData.activeId;
+  if (!activeId) return;
+  const data = await fetch(`/api/profiles/${activeId}/transactions`).then(r => r.json());
+  const el = document.getElementById('tx-list');
+  const txs = data.transactions || [];
+  if (!txs.length) {
+    el.innerHTML = '<div class="empty-state">📭 No transactions yet for this business</div>';
+    return;
+  }
+  el.innerHTML = txs.map(tx => {
+    const isFail = tx.status === 'FAILED';
+    const isLink = tx.type === 'link';
+    const badgeClass = isFail ? 'badge-fail' : isLink ? 'badge-link' : 'badge-ok';
+    const badgeText = isFail ? '✗ Failed' : isLink ? '🔗 Link' : '✓ Charged';
+    const itemClass = isFail ? 'failed' : isLink ? 'link-created' : '';
+    const date = new Date(tx.createdAt).toLocaleString();
+    const receiptHtml = tx.receiptUrl ? `<a class="tx-receipt" href="${tx.receiptUrl}" target="_blank">Receipt ↗</a>` : '';
+    const linkHtml = tx.url ? `<a class="tx-receipt" href="${tx.url}" target="_blank">Link ↗</a>` : '';
+    const errorHtml = tx.error ? `<div class="tx-note" style="color:#ef4444">${tx.error}</div>` : '';
+    return `
+      <div class="tx-item ${itemClass}">
+        <div class="tx-row">
+          <div class="tx-amount">$${tx.amount.toFixed(2)} <span style="font-size:12px;font-weight:400;color:#6b7280">${tx.currency}</span></div>
+          <span class="tx-badge ${badgeClass}">${badgeText}</span>
+        </div>
+        ${tx.note ? `<div class="tx-note">${tx.note}</div>` : ''}
+        ${tx.buyerEmail ? `<div class="tx-note">${tx.buyerEmail}</div>` : ''}
+        ${errorHtml}
+        <div class="tx-row" style="margin-top:4px">
+          <div class="tx-date">${date}</div>
+          ${receiptHtml}${linkHtml}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active',
-      (i === 0 && tab === 'manual') ||
-      (i === 1 && tab === 'link') ||
-      (i === 2 && tab === 'settings')
+      (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
+      (i === 2 && tab === 'history') || (i === 3 && tab === 'settings')
     );
   });
-  ['manual','link','settings'].forEach(id => {
+  ['manual','link','history','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
+  if (tab === 'history') loadHistory();
   if (tab === 'settings') loadProfiles();
+}
+
+// ── Validation ────────────────────────────────────────────────────────────────
+function clearErrors() {
+  document.querySelectorAll('.field-error').forEach(el => el.textContent = '');
+  document.querySelectorAll('input.error, textarea.error').forEach(el => el.classList.remove('error'));
+}
+
+function fieldError(id, msg) {
+  const input = document.getElementById(id);
+  if (input) input.classList.add('error');
+  const err = document.getElementById('err-' + id);
+  if (err) err.textContent = msg;
 }
 
 // ── Charge ────────────────────────────────────────────────────────────────────
 async function chargeCard() {
+  clearErrors();
   const amount = document.getElementById('m-amount').value;
-  const name = document.getElementById('m-name').value;
-  const note = document.getElementById('m-note').value;
-  const email = document.getElementById('m-email').value;
-  const zip = document.getElementById('m-zip').value;
-  const btn = document.getElementById('btn-charge');
+  const note   = document.getElementById('m-note').value.trim();
+  const name   = document.getElementById('m-name').value.trim();
+  const email  = document.getElementById('m-email').value.trim();
+  const zip    = document.getElementById('m-zip').value.trim();
+  const btn    = document.getElementById('btn-charge');
   const result = document.getElementById('result-manual');
 
-  if (!amount || parseFloat(amount) <= 0) { showResult(result, 'error', 'Please enter a valid amount.'); return; }
+  let valid = true;
+  if (!amount || parseFloat(amount) <= 0) { fieldError('m-amount', 'Required'); valid = false; }
+  if (!note) { fieldError('m-note', 'Please describe what this payment is for'); valid = false; }
+  if (!email) { fieldError('m-email', 'Email is required to send a receipt and reduce chargebacks'); valid = false; }
+  if (!zip)  { fieldError('m-zip', 'ZIP code helps verify the card and reduce fraud'); valid = false; }
+  if (!valid) return;
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Processing...';
@@ -448,7 +555,7 @@ async function chargeCard() {
     const verifyResult = await payments.verifyBuyer(tokenResult.token, {
       intent: 'CHARGE', customerInitiated: true, sellerKeyedIn: true,
       amount: parseFloat(amount).toFixed(2), currencyCode: 'USD',
-      billingContact: zip ? { postalCode: zip } : undefined,
+      billingContact: { postalCode: zip },
     });
 
     const res = await fetch('/api/charge', {
@@ -459,13 +566,15 @@ async function chargeCard() {
         verificationToken: verifyResult?.token,
         amount, currency: 'USD',
         note: [name, note].filter(Boolean).join(' — '),
-        buyerEmail: email || undefined,
+        buyerEmail: email,
       }),
     }).then(r => r.json());
 
     if (res.success) {
-      const receipt = res.receiptUrl ? `<br><a href="${res.receiptUrl}" target="_blank">View Receipt</a>` : '';
-      showResult(result, 'success', `✅ Payment successful! ID: ${res.paymentId}${receipt}`);
+      const receipt = res.receiptUrl ? ` <a href="${res.receiptUrl}" target="_blank" style="color:#065f46">View Receipt ↗</a>` : '';
+      showResult(result, 'success', `✅ Payment successful!<br>ID: ${res.paymentId}${receipt}`);
+      // Clear form
+      ['m-amount','m-note','m-name','m-email','m-zip'].forEach(id => document.getElementById(id).value = '');
     } else {
       showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Payment failed'));
     }
@@ -479,13 +588,17 @@ async function chargeCard() {
 
 // ── Payment Link ──────────────────────────────────────────────────────────────
 async function createLink() {
+  clearErrors();
   const amount = document.getElementById('l-amount').value;
-  const title = document.getElementById('l-title').value || 'Payment';
-  const description = document.getElementById('l-desc').value;
-  const btn = document.getElementById('btn-link');
+  const title  = document.getElementById('l-title').value.trim();
+  const desc   = document.getElementById('l-desc').value.trim();
+  const btn    = document.getElementById('btn-link');
   const result = document.getElementById('result-link');
 
-  if (!amount || parseFloat(amount) <= 0) { showResult(result, 'error', 'Please enter a valid amount.'); return; }
+  let valid = true;
+  if (!amount || parseFloat(amount) <= 0) { fieldError('l-amount', 'Required'); valid = false; }
+  if (!title) { fieldError('l-title', 'Title is required — it appears on the payment page'); valid = false; }
+  if (!valid) return;
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Generating...';
@@ -494,7 +607,7 @@ async function createLink() {
   const res = await fetch('/api/payment-link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, currency: 'USD', title, description }),
+    body: JSON.stringify({ amount, currency: 'USD', title, description: desc }),
   }).then(r => r.json());
 
   if (res.success) {
@@ -505,6 +618,9 @@ async function createLink() {
         <input type="text" id="link-url" value="${res.url}" readonly />
         <button class="btn-copy" onclick="copyLink()">Copy</button>
       </div>`;
+    document.getElementById('l-amount').value = '';
+    document.getElementById('l-title').value = '';
+    document.getElementById('l-desc').value = '';
   } else {
     showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Failed'));
   }
