@@ -329,9 +329,12 @@ app.get('/api/profiles/:id/bank-accounts', requireAuth, async (req, res) => {
       accountNumberSuffix: a.account_number_suffix,
       routingNumber: a.routing_number,
       bankName: a.bank_name,
+      holderName: a.holder_name || a.account_holder_name || null,
       status: a.status,
       creditable: a.creditable,
       debitable: a.debitable,
+      merchantId: a.merchant_id || null,
+      locationId: a.location_id || null,
     }));
     res.json({ accounts });
   } catch (e) { res.status(500).json({ error: e.message }); }

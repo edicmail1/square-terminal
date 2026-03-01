@@ -922,6 +922,21 @@ async function loadMerchantInfo(profileId) {
               <label>Deposits / Withdrawals</label>
               <span style="font-family:inherit">${a.creditable ? '✅' : '❌'} / ${a.debitable ? '✅' : '❌'}</span>
             </div>
+            ${a.holderName ? `
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Account Holder</label>
+              <span style="font-family:inherit">${a.holderName}</span>
+            </div>` : ''}
+            ${a.merchantId ? `
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Merchant ID</label>
+              <span style="font-size:10px">${a.merchantId}</span>
+            </div>` : ''}
+            ${a.locationId ? `
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Location ID <span style="font-weight:400;color:#6b7280">(выплаты по локации)</span></label>
+              <span style="font-size:10px">${a.locationId}</span>
+            </div>` : ''}
           </div>`;
         }).join('');
       el.parentNode.insertBefore(bankEl, el.nextSibling);
