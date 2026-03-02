@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -373,6 +373,7 @@
     <div class="tab" onclick="switchTab('history')">📋 History</div>
     <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
         <div class="tab" onclick="switchTab('balance')">💰 Balance</div>
+<div class="tab" onclick="switchTab('customers')">👥 Customers</div>
 <div class="tab" onclick="switchTab('report')">📊 Report</div>
     <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
   </div>
@@ -466,7 +467,20 @@
     </div>
     <div id="balance-list"><p style="color:#6b7280;font-size:14px;">Loading...</p></div>
   </div>
-  <div class="panel" id="panel-report">
+  <div class="panel" id="panel-customers">
+  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+    <input type="text" id="cust-search" placeholder="Search name, email, phone..." style="flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" oninput="debouncedCustomerSearch()" />
+    <button onclick="loadCustomers()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">🔄</button>
+  </div>
+  <div id="customers-list"><p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">Loading...</p></div>
+  <div id="customers-load-more" style="display:none;margin-top:10px">
+    <button onclick="loadMoreCustomers()" style="width:100%;padding:10px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:8px;font-size:13px;cursor:pointer">Load more...</button>
+  </div>
+  <div id="cust-detail" style="display:none;margin-top:16px;border-top:2px solid #e5e7eb;padding-top:16px">
+    <button onclick="closeCustomerDetail()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;margin-bottom:10px">← Back to list</button>
+    <div id="cust-detail-content"></div>
+  </div>
+</div><div class="panel" id="panel-report">
     <div class="report-toolbar">
       <div class="period-btns">
         <button class="period-btn" data-period="today" onclick="setPeriod('today')">Today</button>
@@ -1237,17 +1251,19 @@ function switchTab(tab) {
     t.classList.toggle('active',
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
       (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
-      (i === 4 && tab === 'balance') || (i === 5 && tab === 'report')  || (i === 6 && tab === 'settings')
+      (i === 4 && tab === 'balance') || (i === 5 && tab === 'customers') ||
+      (i === 6 && tab === 'report') || (i === 7 && tab === 'settings')
     );
   });
-  ['manual','link','history','locations','balance','report','settings'].forEach(id => {
+  ['manual','link','history','locations','balance','customers','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
-  if (tab === 'manual')    initSquare();   // loads Square.js only on first click
+  if (tab === 'manual')    initSquare();
   if (tab === 'link')      loadLinkLocations();
   if (tab === 'history')   loadHistory();
   if (tab === 'locations') loadLocations();
   if (tab === 'balance')   loadBalance();
+  if (tab === 'customers') loadCustomers();
   if (tab === 'report')    loadReport();
   if (tab === 'settings')  loadProfiles();
 }
@@ -1742,6 +1758,112 @@ async function loadBalance() {
   }
 }
 
+
+// ── Customers ───────────────────────────────────────────────────────────────
+let customersCursor = null;
+let segmentsCache = {};
+let customerSearchTimeout = null;
+
+function debouncedCustomerSearch() {
+  clearTimeout(customerSearchTimeout);
+  customerSearchTimeout = setTimeout(() => loadCustomers(), 400);
+}
+
+async function loadSegments() {
+  if (Object.keys(segmentsCache).length) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customer-segments`);
+    const data = await r.json();
+    (data.segments || []).forEach(s => { segmentsCache[s.id] = s.name; });
+  } catch {}
+}
+
+async function loadCustomers() {
+  customersCursor = null;
+  document.getElementById('customers-list').innerHTML = '<p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">Loading...</p>';
+  document.getElementById('customers-load-more').style.display = 'none';
+  document.getElementById('cust-detail').style.display = 'none';
+  await loadSegments();
+  await fetchCustomers(false);
+}
+
+async function loadMoreCustomers() { await fetchCustomers(true); }
+
+async function fetchCustomers(append) {
+  const query = document.getElementById('cust-search').value.trim();
+  const params = new URLSearchParams({ limit: '50' });
+  if (query) params.set('query', query);
+  if (append && customersCursor) params.set('cursor', customersCursor);
+  try {
+    const data = await fetch('/api/profiles/' + profilesData.activeId + '/customers?' + params).then(r => r.json());
+    if (data.error) { document.getElementById('customers-list').innerHTML = '<p style="color:#ef4444;font-size:13px">' + data.error + '</p>'; return; }
+    customersCursor = data.cursor || null;
+    document.getElementById('customers-load-more').style.display = customersCursor ? 'block' : 'none';
+    const customers = data.customers || [];
+    if (!customers.length && !append) { document.getElementById('customers-list').innerHTML = '<p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">No customers found</p>'; return; }
+    const html = customers.map(c => {
+      const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'Unknown';
+      const segs = c.segmentIds.map(id => segmentsCache[id] || '').filter(Boolean);
+      return '<div onclick="openCustomer(\'' + c.id + '\')" style="border:1px solid #e5e7eb;border-radius:8px;padding:11px 13px;margin-bottom:8px;cursor:pointer" onmouseover="this.style.borderColor=\'#006AFF\'" onmouseout="this.style.borderColor=\'#e5e7eb\'">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
+        '<div><div style="font-size:14px;font-weight:700;color:#111827">' + name + '</div>' +
+        (c.email ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">✉️ ' + c.email + '</div>' : '') +
+        (c.phone ? '<div style="font-size:12px;color:#6b7280;margin-top:1px">📞 ' + c.phone + '</div>' : '') +
+        '</div><div style="text-align:right">' +
+        '<div style="font-size:10px;color:#9ca3af">' + new Date(c.createdAt).toLocaleDateString('ru-RU') + '</div>' +
+        '<div style="font-size:10px;color:#9ca3af;margin-top:2px">' + c.source + '</div></div></div>' +
+        (segs.length ? '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;padding:2px 7px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
+        '</div>';
+    }).join('');
+    const el = document.getElementById('customers-list');
+    if (append) el.innerHTML += html; else el.innerHTML = html;
+  } catch (e) { document.getElementById('customers-list').innerHTML = '<p style="color:#ef4444;font-size:13px">Error: ' + e.message + '</p>'; }
+}
+
+async function openCustomer(customerId) {
+  document.getElementById('cust-detail').style.display = 'block';
+  document.getElementById('cust-detail-content').innerHTML = '<p style="color:#6b7280;font-size:14px">Loading...</p>';
+  document.getElementById('cust-detail').scrollIntoView({ behavior: 'smooth' });
+  try {
+    const [cust, pmts] = await Promise.all([
+      fetch('/api/profiles/' + profilesData.activeId + '/customers/' + customerId).then(r => r.json()),
+      fetch('/api/profiles/' + profilesData.activeId + '/customers/' + customerId + '/payments').then(r => r.json()),
+    ]);
+    const name = [cust.givenName, cust.familyName].filter(Boolean).join(' ') || 'Unknown';
+    const segs = (cust.segmentIds || []).map(id => segmentsCache[id] || '').filter(Boolean);
+    const payments = pmts.payments || [];
+    const totalSpent = payments.filter(p => p.state === 'COMPLETED' || p.state === 'OPEN').reduce((s, p) => s + parseFloat(p.total), 0);
+    document.getElementById('cust-detail-content').innerHTML =
+      '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px">' +
+      '<div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:12px">' + name + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">' +
+      (cust.email ? '<div><span style="color:#9ca3af;font-size:11px;display:block">Email</span>' + cust.email + '</div>' : '') +
+      (cust.phone ? '<div><span style="color:#9ca3af;font-size:11px;display:block">Phone</span><strong>' + cust.phone + '</strong></div>' : '') +
+      (cust.address ? '<div style="grid-column:span 2"><span style="color:#9ca3af;font-size:11px;display:block">Address</span>' + cust.address + '</div>' : '') +
+      (cust.birthday ? '<div><span style="color:#9ca3af;font-size:11px;display:block">Birthday</span>' + cust.birthday + '</div>' : '') +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Source</span>' + cust.source + '</div>' +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Customer since</span>' + new Date(cust.createdAt).toLocaleDateString('ru-RU') + '</div>' +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Total spent</span><strong style="color:#059669;font-size:15px">$' + totalSpent.toFixed(2) + '</strong></div>' +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Orders</span><strong style="font-size:15px">' + payments.length + '</strong></div>' +
+      '</div>' +
+      (cust.note ? '<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border-radius:6px;font-size:12px;color:#78350f">📝 ' + cust.note + '</div>' : '') +
+      (segs.length ? '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:11px;padding:3px 9px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
+      '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Payment History</div>' +
+      (!payments.length ? '<p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">No payments found</p>' :
+        payments.map(p => {
+          const sc = p.state === 'COMPLETED' ? '#059669' : p.state === 'OPEN' ? '#d97706' : '#ef4444';
+          return '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:11px 13px;margin-bottom:8px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span style="font-size:15px;font-weight:700;color:#111827">$' + p.total + ' <span style="font-size:11px;font-weight:400;color:#6b7280">' + p.currency + '</span></span>' +
+            '<span style="font-size:11px;font-weight:700;color:' + sc + '">' + p.state + '</span></div>' +
+            p.lineItems.map(i => '<div style="font-size:12px;color:#6b7280;margin-top:3px">' + i.name + ' \xd7 ' + i.qty + ' \u2014 $' + i.price + '</div>').join('') +
+            '<div style="font-size:11px;color:#9ca3af;margin-top:4px">' + new Date(p.createdAt).toLocaleString('ru-RU') + '</div></div>';
+        }).join(''));
+  } catch (e) { document.getElementById('cust-detail-content').innerHTML = '<p style="color:#ef4444">Error: ' + e.message + '</p>'; }
+}
+
+function closeCustomerDetail() { document.getElementById('cust-detail').style.display = 'none'; }
 checkAuth();
 </script>
 </body>
