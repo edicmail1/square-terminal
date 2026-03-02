@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -458,6 +458,13 @@
   </div>
 
   <!-- REPORT -->
+  <div class="panel" id="panel-balance">
+    <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;">Merchant Balance</h3>
+      <button onclick="loadBalance()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">🔄 Refresh</button>
+    </div>
+    <div id="balance-list"><p style="color:#6b7280;font-size:14px;">Loading...</p></div>
+  </div>
   <div class="panel" id="panel-report">
     <div class="report-toolbar">
       <div class="period-btns">
@@ -1229,16 +1236,17 @@ function switchTab(tab) {
     t.classList.toggle('active',
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
       (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
-      (i === 4 && tab === 'report')  || (i === 5 && tab === 'settings')
+      (i === 4 && tab === 'balance') || (i === 5 && tab === 'report')  || (i === 6 && tab === 'settings')
     );
   });
-  ['manual','link','history','locations','report','settings'].forEach(id => {
+  ['manual','link','history','locations','balance','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
   if (tab === 'manual')    initSquare();   // loads Square.js only on first click
   if (tab === 'link')      loadLinkLocations();
   if (tab === 'history')   loadHistory();
   if (tab === 'locations') loadLocations();
+  if (tab === 'balance')   loadBalance();
   if (tab === 'report')    loadReport();
   if (tab === 'settings')  loadProfiles();
 }
@@ -1676,9 +1684,67 @@ function showResult(el, type, msg) {
   el.style.display = 'block';
 }
 
+// ── Balance ──────────────────────────────────────────────────────────────────
+async function loadBalance() {
+  const list = document.getElementById('balance-list');
+  list.innerHTML = '<p style="color:#6b7280;font-size:14px;">Loading...</p>';
+  try {
+    const profilesRes = await fetch('/api/profiles', { credentials: 'include' });
+    const profilesData = await profilesRes.json();
+    const profiles = profilesData.profiles || [];
+
+    const results = await Promise.all(profiles.map(async p => {
+      try {
+        const r = await fetch(`/api/profiles/${p.id}/balance`, { credentials: 'include' });
+        const data = await r.json();
+        return { profile: p, balance: data, error: null };
+      } catch (e) {
+        return { profile: p, balance: null, error: e.message };
+      }
+    }));
+
+    if (!results.length) {
+      list.innerHTML = '<p style="color:#6b7280;font-size:14px;">No profiles found.</p>';
+      return;
+    }
+
+    list.innerHTML = results.map(({ profile, balance, error }) => {
+      const available = balance?.available?.[0];
+      const pending   = balance?.pending?.[0];
+      const currency  = available?.currency || pending?.currency || 'USD';
+      const availAmt  = available ? `$${available.amount}` : '—';
+      const pendAmt   = pending   ? `$${pending.amount}`   : '—';
+      const isActive  = profile.active ? ' border-color:#006AFF;' : '';
+      return `
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;${isActive}border-radius:10px;padding:16px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <span style="font-size:14px;font-weight:700;color:#111827;">${profile.name}</span>
+            ${profile.active ? '<span style="background:#eff6ff;color:#006AFF;font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;">Active</span>' : ''}
+          </div>
+          ${error ? `<p style="color:#ef4444;font-size:13px;">Error: ${error}</p>` : `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Available</div>
+              <div style="font-size:22px;font-weight:700;color:#059669;">${availAmt}</div>
+              <div style="font-size:11px;color:#9ca3af;">${currency}</div>
+            </div>
+            <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Pending</div>
+              <div style="font-size:22px;font-weight:700;color:#d97706;">${pendAmt}</div>
+              <div style="font-size:11px;color:#9ca3af;">${currency}</div>
+            </div>
+          </div>`}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<p style="color:#ef4444;font-size:14px;">Error: ${e.message}</p>`;
+  }
+}
+
 checkAuth();
 </script>
 </body>
 </html>
+
 
 
