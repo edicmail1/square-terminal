@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const { Client, Environment } = require('square');
 const { v4: uuidv4 } = require('uuid');
@@ -419,6 +419,21 @@ app.get('/api/debug/payment', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET balance for a profile
+app.get('/api/profiles/:id/balance', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  try {
+    const r = await squareGet(profile.accessToken, '/v2/balance/merchant-balance');
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+    const fmt = (arr) => (arr || []).map(m => ({ amount: (Number(m.amount) / 100).toFixed(2), currency: m.currency }));
+    res.json({
+      available: fmt(r.body.balance?.available),
+      pending:   fmt(r.body.balance?.pending),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET bank accounts for a profile
 app.get('/api/profiles/:id/bank-accounts', requireAuth, async (req, res) => {
   const profile = store.profiles.find(p => p.id === req.params.id);
@@ -648,3 +663,4 @@ app.post('/api/payment-link', requireAuth, async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Square Terminal running on port ${PORT}`));
+
