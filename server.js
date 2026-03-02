@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const { Client, Environment } = require('square');
 const { v4: uuidv4 } = require('uuid');
@@ -659,6 +659,89 @@ app.post('/api/payment-link', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(400).json({ success: false, errors: err.errors || [{ detail: err.message }] });
   }
+});
+
+// GET customers list (with optional search query)
+app.get('/api/profiles/:id/customers', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  const cursor = req.query.cursor || null;
+  const query = req.query.query || '';
+  try {
+    let customers = [], newCursor = null;
+    if (query) {
+      const body = { query: { filter: { text_filter: { fuzzy: query } } }, limit: 50 };
+      if (cursor) body.cursor = cursor;
+      const r = await squarePost(profile.accessToken, '/v2/customers/search', body);
+      if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+      customers = r.body.customers || [];
+      newCursor = r.body.cursor || null;
+    } else {
+      let path = '/v2/customers?limit=100&sort_field=CREATED_AT&sort_order=DESC';
+      if (cursor) path += `&cursor=${encodeURIComponent(cursor)}`;
+      const r = await squareGet(profile.accessToken, path);
+      if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+      customers = r.body.customers || [];
+      newCursor = r.body.cursor || null;
+    }
+    res.json({ customers: customers.map(c => ({
+      id: c.id, givenName: c.given_name || '', familyName: c.family_name || '',
+      email: c.email_address || '', phone: c.phone_number || '', createdAt: c.created_at,
+      source: c.creation_source || '', note: c.note || '', segmentIds: c.segment_ids || [],
+    })), cursor: newCursor });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET single customer
+app.get('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  try {
+    const r = await squareGet(profile.accessToken, `/v2/customers/${req.params.cid}`);
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+    const c = r.body.customer;
+    res.json({ id: c.id, givenName: c.given_name || '', familyName: c.family_name || '',
+      email: c.email_address || '', phone: c.phone_number || '', createdAt: c.created_at,
+      updatedAt: c.updated_at, source: c.creation_source || '', note: c.note || '',
+      segmentIds: c.segment_ids || [],
+      address: c.address ? [c.address.address_line_1, c.address.locality, c.address.administrative_district_level_1].filter(Boolean).join(', ') : '',
+      birthday: c.birthday || '', referenceId: c.reference_id || '',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET customer segments
+app.get('/api/profiles/:id/customer-segments', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  try {
+    const r = await squareGet(profile.accessToken, '/v2/customers/segments?limit=50');
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+    res.json({ segments: (r.body.segments || []).map(s => ({ id: s.id, name: s.name })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET payments for a specific customer
+app.get('/api/profiles/:id/customers/:cid/payments', requireAuth, async (req, res) => {
+  const profile = store.profiles.find(p => p.id === req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  try {
+    const locRes = await squareGet(profile.accessToken, '/v2/locations');
+    const locationIds = (locRes.body?.locations || []).filter(l => l.status === 'ACTIVE').map(l => l.id);
+    const body = { location_ids: locationIds,
+      query: { filter: { customer_filter: { customer_ids: [req.params.cid] } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } },
+      limit: 50 };
+    const r = await squarePost(profile.accessToken, '/v2/orders/search', body);
+    if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+    const orders = r.body.orders || [];
+    res.json({ payments: orders.map(o => ({
+      orderId: o.id, state: o.state,
+      total: ((o.total_money?.amount || 0) / 100).toFixed(2),
+      currency: o.total_money?.currency || 'USD', createdAt: o.created_at,
+      lineItems: (o.line_items || []).map(i => ({ name: i.name, qty: i.quantity, price: ((i.base_price_money?.amount || 0) / 100).toFixed(2) })),
+      paymentId: o.tenders?.[0]?.payment_id || null,
+    }))});
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 const PORT = process.env.PORT || 3000;
