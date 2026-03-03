@@ -660,15 +660,29 @@ app.get('/api/debug/payment', requireAuth, async (req, res) => {
   res.json(r.body);
 });
 
-// GET balance
-app.get('/api/profiles/:id/balance', requireAuth, async (req, res) => {
+// GET payouts
+app.get('/api/profiles/:id/payouts', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
-  const r = await safeSquareCall(profile, (token) => squareGet(token, '/v2/balance/merchant-balance'));
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  const cursor = req.query.cursor || '';
+  const qs = `location_id=${profile.location_id}&limit=${limit}${cursor ? '&cursor=' + cursor : ''}`;
+  const r = await safeSquareCall(profile, (token) => squareGet(token, `/v2/payouts?${qs}`));
   if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
-  const fmt = (arr) => (arr || []).map(m => ({ amount: (Number(m.amount) / 100).toFixed(2), currency: m.currency }));
-  res.json({ available: fmt(r.body.balance?.available), pending: fmt(r.body.balance?.pending) });
+  const payouts = (r.body.payouts || []).map(p => ({
+    id: p.id,
+    status: p.status,
+    amount: (Number(p.amount_money?.amount || 0) / 100).toFixed(2),
+    currency: p.amount_money?.currency || 'USD',
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+    arrivalDate: p.arrival_date || null,
+    type: p.type,
+    destinationType: p.destination?.type || null,
+    endToEndId: p.end_to_end_id || null,
+  }));
+  res.json({ payouts, cursor: r.body.cursor || null });
 });
 
 // GET bank accounts
