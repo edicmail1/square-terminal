@@ -736,15 +736,17 @@ async function doLogin() {
   btn.disabled = true;
   btn.textContent = 'Signing in...';
 
-  const res = await fetch('/api/login', {
+  const rawRes = await fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
-  }).then(r => r.json());
+  });
+  const res = await rawRes.json();
 
   if (res.success) {
     showApp();
   } else {
+    err.textContent = res.error || 'Неверный пароль';
     err.style.display = 'block';
     input.classList.add('error');
     input.value = '';
@@ -1126,7 +1128,8 @@ async function fetchHistory(append) {
   const el = document.getElementById('tx-list');
 
   if (data.error) {
-    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}<br><small>Возможно нужен PAYMENTS_READ permission</small></div>`;
+    const tokenMsg = data.tokenExpired ? '<br><button onclick="switchTab(\'settings\')" style="margin-top:8px;padding:6px 14px;background:#006AFF;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px">Обновить токен в настройках</button>' : '<br><small>Возможно нужен PAYMENTS_READ permission</small>';
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}${tokenMsg}</div>`;
     return;
   }
 
@@ -1299,7 +1302,8 @@ async function loadReport() {
   try {
     const data = await fetch(`/api/profiles/${profilesData.activeId}/report?${params}`).then(r => r.json());
     if (data.error) {
-      el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}<br><small>Your Access Token may need PAYMENTS_READ permission</small></div>`;
+      const tokenMsg = data.tokenExpired ? '<br><button onclick="switchTab(\'settings\')" style="margin-top:8px;padding:6px 14px;background:#006AFF;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px">Обновить токен</button>' : '<br><small>Your Access Token may need PAYMENTS_READ permission</small>';
+      el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}${tokenMsg}</div>`;
       return;
     }
 
@@ -1868,6 +1872,3 @@ checkAuth();
 </script>
 </body>
 </html>
-
-
-
