@@ -1,1 +1,1877 @@
-will_read_from_file
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Payment Terminal</title>
+  <!-- Square.js загружается только при открытии Manual Entry -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f4f5f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    /* Login screen */
+    #login-screen {
+      display: none;
+      position: fixed; inset: 0;
+      background: #f4f5f7;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    #login-screen.visible { display: flex; }
+    .login-box {
+      background: white; border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+      padding: 40px 36px; width: 100%; max-width: 360px;
+      text-align: center;
+    }
+    .login-logo { font-size: 40px; margin-bottom: 12px; }
+    .login-title { font-size: 22px; font-weight: 700; color: #111827; margin-bottom: 6px; }
+    .login-sub { font-size: 14px; color: #6b7280; margin-bottom: 28px; }
+    .login-field { margin-bottom: 16px; text-align: left; }
+    .login-field label { font-size: 13px; font-weight: 500; color: #374151; display: block; margin-bottom: 6px; }
+    .login-field input {
+      width: 100%; padding: 12px 14px; border: 1px solid #d1d5db;
+      border-radius: 10px; font-size: 15px; outline: none; transition: border 0.2s;
+    }
+    .login-field input:focus { border-color: #006AFF; }
+    .login-field input.error { border-color: #ef4444; }
+    .login-error { color: #ef4444; font-size: 13px; margin-bottom: 12px; display: none; }
+    .btn-login {
+      width: 100%; padding: 14px; background: #006AFF; color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .btn-login:hover { background: #0057d4; }
+    .btn-login:disabled { background: #93c5fd; cursor: not-allowed; }
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+      width: 100%;
+      max-width: 760px;
+      overflow: hidden;
+    }
+    .header {
+      background: #006AFF;
+      color: white;
+      padding: 20px 28px;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header p { font-size: 12px; opacity: 0.8; margin-top: 3px; }
+    .profile-bar {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 12px; background: rgba(255,255,255,0.15);
+      border-radius: 8px; padding: 8px 12px;
+    }
+    .profile-bar label { font-size: 12px; color: rgba(255,255,255,0.8); white-space: nowrap; }
+    .profile-select {
+      flex: 1; background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+      color: white; font-size: 14px; font-weight: 600;
+      padding: 5px 8px; cursor: pointer; outline: none;
+    }
+    .profile-select option { background: #1d4ed8; color: white; }
+    .profile-limit {
+      font-size: 11px; color: rgba(255,255,255,0.7);
+      margin-top: 5px; padding-left: 2px;
+    }
+    .tabs {
+      display: flex; border-bottom: 1px solid #e5e7eb;
+      overflow-x: auto;
+    }
+    .tab {
+      flex: 1; padding: 12px 6px; text-align: center;
+      font-size: 12px; font-weight: 500; cursor: pointer;
+      color: #6b7280; border-bottom: 2px solid transparent;
+      transition: all 0.2s; white-space: nowrap; min-width: 70px;
+    }
+    .tab.active { color: #006AFF; border-bottom-color: #006AFF; }
+    .panel { display: none; padding: 20px 24px; max-height: 70vh; overflow-y: auto; }
+    .panel.active { display: block; }
+    .field { margin-bottom: 14px; }
+    label {
+      display: block; font-size: 13px; font-weight: 500;
+      color: #374151; margin-bottom: 5px;
+    }
+    label .req { color: #ef4444; margin-left: 2px; }
+    input[type="text"], input[type="number"], input[type="email"],
+    input[type="password"], select, textarea {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      font-size: 14px; outline: none; transition: border 0.2s;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus { border-color: #006AFF; }
+    input.error, textarea.error { border-color: #ef4444; }
+    .field-error { font-size: 11px; color: #ef4444; margin-top: 3px; }
+    .amount-wrap { position: relative; }
+    .amount-wrap span {
+      position: absolute; left: 12px; top: 50%;
+      transform: translateY(-50%); color: #6b7280; font-size: 14px;
+    }
+    .amount-wrap input { padding-left: 24px; }
+    #card-container {
+      border: 1px solid #d1d5db; border-radius: 8px;
+      padding: 10px 12px; min-height: 44px;
+    }
+    .btn {
+      width: 100%; padding: 13px; border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s; margin-top: 8px;
+    }
+    .btn-primary { background: #006AFF; color: white; }
+    .btn-primary:hover { background: #0057d4; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-green { background: #10b981; color: white; }
+    .btn-green:hover { background: #059669; }
+    .btn-green:disabled { background: #6ee7b7; cursor: not-allowed; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-sm { width: auto; padding: 6px 12px; font-size: 12px; margin-top: 0; }
+    .result {
+      margin-top: 14px; padding: 13px; border-radius: 8px;
+      font-size: 14px; display: none; line-height: 1.5;
+    }
+    .result.success { background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
+    .result.error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+    .result.warn { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+    .link-box { display: flex; gap: 8px; margin-top: 10px; }
+    .link-box input { flex: 1; background: #f9fafb; font-size: 13px; }
+    .btn-copy {
+      padding: 10px 14px; background: #006AFF; color: white;
+      border: none; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 600; white-space: nowrap;
+    }
+    .btn-copy:hover { background: #0057d4; }
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.4); border-top-color: white;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* History */
+    .tx-list { }
+    .tx-item {
+      padding: 10px 12px; border: 1px solid #e5e7eb;
+      border-radius: 8px; margin-bottom: 8px; font-size: 13px;
+    }
+    .tx-item.failed { border-color: #fca5a5; background: #fef2f2; }
+    .tx-item.link-created { border-color: #a7f3d0; background: #ecfdf5; }
+    .tx-row { display: flex; justify-content: space-between; align-items: center; }
+    .tx-amount { font-size: 15px; font-weight: 700; color: #111827; }
+    .tx-badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 20px;
+      font-weight: 600;
+    }
+    .badge-ok { background: #d1fae5; color: #065f46; }
+    .badge-fail { background: #fee2e2; color: #991b1b; }
+    .badge-link { background: #dbeafe; color: #1e40af; }
+    .tx-note { color: #6b7280; margin-top: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tx-date { color: #9ca3af; font-size: 11px; margin-top: 2px; }
+    .tx-receipt { font-size: 12px; color: #006AFF; text-decoration: none; }
+    .tx-receipt:hover { text-decoration: underline; }
+    .empty-state { text-align: center; color: #9ca3af; padding: 40px 0; font-size: 14px; }
+
+    /* Settings */
+    .profile-list { margin-bottom: 20px; }
+    .profile-card {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      margin-bottom: 8px; overflow: hidden;
+    }
+    .profile-card.is-active { border-color: #006AFF; }
+    .profile-card-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; background: #f9fafb;
+    }
+    .profile-card.is-active .profile-card-header { background: #eff6ff; }
+    .profile-card-name { flex: 1; font-size: 14px; font-weight: 600; color: #111827; }
+    .profile-card-sub { font-size: 11px; color: #6b7280; }
+    .badge-active { font-size: 11px; background: #006AFF; color: white; padding: 2px 8px; border-radius: 20px; }
+    .profile-card-actions { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid #e5e7eb; }
+    .merchant-info {
+      padding: 10px 12px; border-top: 1px solid #e5e7eb;
+      background: #f9fafb; font-size: 12px;
+    }
+    .merchant-info.loading { color: #9ca3af; font-style: italic; }
+    .merchant-info.error-state { color: #ef4444; }
+    .bank-info {
+      padding: 10px 12px; border-top: 1px solid #e5e7eb;
+      background: #f0fdf4; font-size: 12px;
+    }
+    .bank-account {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 4px 16px; margin-top: 6px;
+    }
+    .bank-account + .bank-account { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d1fae5; }
+    .bank-field label { color: #6b7280; font-size: 11px; display: block; }
+    .bank-field span { color: #111827; font-weight: 600; font-size: 12px; font-family: monospace; }
+    .bank-status-badge {
+      font-size: 10px; padding: 1px 7px; border-radius: 20px; font-weight: 600;
+    }
+    .bank-verified { background: #d1fae5; color: #065f46; }
+    .bank-pending  { background: #fef9c3; color: #854d0e; }
+    .bank-disabled { background: #fee2e2; color: #991b1b; }
+    .merchant-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 6px 16px; margin-top: 4px;
+    }
+    .merchant-field label { color: #9ca3af; font-size: 11px; display: block; }
+    .merchant-field span { color: #111827; font-weight: 500; font-size: 12px; }
+    .status-dot {
+      display: inline-block; width: 7px; height: 7px;
+      border-radius: 50%; margin-right: 4px;
+    }
+    .status-dot.active { background: #10b981; }
+    .status-dot.inactive { background: #ef4444; }
+
+    /* History */
+    .tx-item { padding: 11px 13px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; }
+    .tx-item.failed { border-color: #fca5a5; background: #fef2f2; }
+    .tx-item.completed { border-color: #6ee7b7; background: #f0fdf9; }
+    .tx-details { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; font-size: 11px; }
+    .tx-detail label { color: #9ca3af; display: block; }
+    .tx-detail span { color: #374151; font-weight: 500; word-break: break-all; }
+    .tx-detail.full { grid-column: span 2; }
+    .tx-alert { margin-top: 6px; padding: 6px 10px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 11px; color: #991b1b; }
+    .tx-toggle { font-size: 11px; color: #006AFF; cursor: pointer; margin-top: 6px; display: inline-block; }
+
+    /* Report */
+    .report-toolbar { margin-bottom: 16px; }
+    .period-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .period-btn {
+      padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 20px;
+      background: white; font-size: 13px; font-weight: 500; cursor: pointer;
+      color: #374151; transition: all 0.15s;
+    }
+    .period-btn.active { background: #006AFF; color: white; border-color: #006AFF; }
+    .period-btn:hover:not(.active) { border-color: #006AFF; color: #006AFF; }
+    .report-totals {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 16px;
+    }
+    .report-total-card {
+      background: #f9fafb; border: 1px solid #e5e7eb;
+      border-radius: 8px; padding: 12px 14px;
+    }
+    .report-total-card.highlight { background: #eff6ff; border-color: #93c5fd; }
+    .report-total-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+    .report-total-value { font-size: 20px; font-weight: 700; color: #111827; }
+    .report-total-card.highlight .report-total-value { color: #006AFF; }
+    .report-loc-card {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .report-loc-card.is-current { border-color: #006AFF; }
+    .report-loc-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 13px; background: #f9fafb; cursor: pointer;
+    }
+    .report-loc-card.is-current .report-loc-header { background: #eff6ff; }
+    .report-loc-name { font-size: 14px; font-weight: 600; color: #111827; }
+    .report-loc-total { font-size: 16px; font-weight: 700; color: #006AFF; }
+    .report-loc-body {
+      display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+      border-top: 1px solid #e5e7eb;
+    }
+    .report-stat {
+      padding: 8px 10px; text-align: center;
+      border-right: 1px solid #e5e7eb; font-size: 12px;
+    }
+    .report-stat:last-child { border-right: none; }
+    .report-stat-val { font-weight: 700; color: #111827; font-size: 13px; }
+    .report-stat-lbl { color: #9ca3af; font-size: 10px; margin-top: 1px; }
+    .report-inactive { color: #9ca3af; font-size: 12px; font-style: italic; }
+
+    /* Locations */
+    .loc-card {
+      border: 1px solid #e5e7eb; border-radius: 8px;
+      margin-bottom: 10px; overflow: hidden;
+    }
+    .loc-card.loc-active { border-color: #006AFF; }
+    .loc-header {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 11px 13px; background: #f9fafb;
+    }
+    .loc-card.loc-active .loc-header { background: #eff6ff; }
+    .loc-name { font-size: 14px; font-weight: 700; color: #111827; }
+    .loc-addr { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .loc-status-badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+    }
+    .loc-status-active { background: #d1fae5; color: #065f46; }
+    .loc-status-inactive { background: #fee2e2; color: #991b1b; }
+    .loc-stats {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      border-top: 1px solid #e5e7eb;
+    }
+    .loc-stat {
+      padding: 9px 13px; text-align: center;
+      border-right: 1px solid #e5e7eb;
+    }
+    .loc-stat:last-child { border-right: none; }
+    .loc-stat-value { font-size: 15px; font-weight: 700; color: #111827; }
+    .loc-stat-label { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+
+    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 18px 0; }
+    .section-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .hint { font-size: 11px; color: #9ca3af; margin-top: 3px; }
+    .row { display: flex; gap: 10px; }
+    .row .field { flex: 1; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="visible">
+  <div class="login-box">
+    <div class="login-logo">💳</div>
+    <div class="login-title">Payment Terminal</div>
+    <div class="login-sub">Enter your password to continue</div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••"
+        onkeydown="if(event.key==='Enter') doLogin()" />
+    </div>
+    <div class="login-error" id="login-error">Incorrect password</div>
+    <button class="btn-login" id="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="container" id="app" style="display:none">
+  <div class="header">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h1>💳 Payment Terminal</h1>
+        <p>Manual entry or send payment link</p>
+      </div>
+      <button onclick="doLogout()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);color:white;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px">Sign Out</button>
+    </div>
+    <div class="profile-bar">
+      <label>Business:</label>
+      <select class="profile-select" id="profile-switcher" onchange="switchProfile(this.value)">
+        <option>Loading...</option>
+      </select>
+    </div>
+    <div class="profile-limit" id="profile-limit-info"></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab" onclick="switchTab('manual')">Manual Entry</div>
+    <div class="tab active" onclick="switchTab('link')">Payment Link</div>
+    <div class="tab" onclick="switchTab('history')">📋 History</div>
+    <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
+        <div class="tab" onclick="switchTab('balance')">💰 Balance</div>
+<div class="tab" onclick="switchTab('customers')">👥 Customers</div>
+<div class="tab" onclick="switchTab('report')">📊 Report</div>
+    <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
+  </div>
+
+  <!-- MANUAL ENTRY -->
+  <div class="panel" id="panel-manual">
+    <div class="field">
+      <label>Amount <span class="req">*</span></label>
+      <div class="amount-wrap">
+        <span>$</span>
+        <input type="number" id="m-amount" placeholder="0.00" min="0.01" step="0.01" />
+      </div>
+      <div class="field-error" id="err-m-amount"></div>
+    </div>
+    <div class="field">
+      <label>Description / Note <span class="req">*</span></label>
+      <input type="text" id="m-note" placeholder="Service name, invoice #, etc." />
+      <div class="field-error" id="err-m-note"></div>
+    </div>
+    <div class="field">
+      <label>Customer Name (optional)</label>
+      <input type="text" id="m-name" placeholder="John Smith" />
+    </div>
+    <div class="field">
+      <label>Customer Email <span class="req">*</span></label>
+      <input type="email" id="m-email" placeholder="customer@example.com" />
+      <div class="field-error" id="err-m-email"></div>
+    </div>
+    <div class="field">
+      <label>ZIP Code <span class="req">*</span></label>
+      <input type="text" id="m-zip" placeholder="10001" maxlength="10" style="max-width:160px" />
+      <div class="field-error" id="err-m-zip"></div>
+    </div>
+    <div class="field">
+      <label>Card</label>
+      <div id="card-container"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-charge" onclick="chargeCard()">Charge</button>
+    <div class="result" id="result-manual"></div>
+  </div>
+
+  <!-- PAYMENT LINK -->
+  <div class="panel active" id="panel-link">
+    <div class="field">
+      <label>Location <span class="req">*</span></label>
+      <select id="l-location">
+        <option value="">Loading locations...</option>
+      </select>
+      <div class="field-error" id="err-l-location"></div>
+    </div>
+    <div class="field">
+      <label>Amount <span class="req">*</span></label>
+      <div class="amount-wrap">
+        <span>$</span>
+        <input type="number" id="l-amount" placeholder="0.00" min="0.01" step="0.01" />
+      </div>
+      <div class="field-error" id="err-l-amount"></div>
+    </div>
+    <div class="field">
+      <label>Title <span class="req">*</span></label>
+      <input type="text" id="l-title" placeholder="Service name, invoice #..." />
+      <div class="field-error" id="err-l-title"></div>
+    </div>
+    <div class="field">
+      <label>Description (optional)</label>
+      <input type="text" id="l-desc" placeholder="Additional details..." />
+    </div>
+    <button class="btn btn-green" id="btn-link" onclick="createLink()">Generate Link</button>
+    <div class="result" id="result-link"></div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="panel" id="panel-history">
+    <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+      <select id="history-location" onchange="loadHistory()" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none">
+        <option value="">Loading locations...</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadHistory()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:8px 14px">↻ Refresh</button>
+    </div>
+    <div class="tx-list" id="tx-list"><div class="empty-state">Loading...</div></div>
+    <div id="history-load-more" style="display:none;margin-top:10px">
+      <button class="btn btn-sm" onclick="loadMoreHistory()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;width:100%;padding:10px">Load more...</button>
+    </div>
+  </div>
+
+  <!-- REPORT -->
+  <div class="panel" id="panel-balance">
+    <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;">Merchant Balance</h3>
+      <button onclick="loadBalance()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">🔄 Refresh</button>
+    </div>
+    <div id="balance-list"><p style="color:#6b7280;font-size:14px;">Loading...</p></div>
+  </div>
+  <div class="panel" id="panel-customers">
+  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+    <input type="text" id="cust-search" placeholder="Search name, email, phone..." style="flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" oninput="debouncedCustomerSearch()" />
+    <button onclick="loadCustomers()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">🔄</button>
+  </div>
+  <div id="customers-list"><p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">Loading...</p></div>
+  <div id="customers-load-more" style="display:none;margin-top:10px">
+    <button onclick="loadMoreCustomers()" style="width:100%;padding:10px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:8px;font-size:13px;cursor:pointer">Load more...</button>
+  </div>
+  <div id="cust-detail" style="display:none;margin-top:16px;border-top:2px solid #e5e7eb;padding-top:16px">
+    <button onclick="closeCustomerDetail()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;margin-bottom:10px">← Back to list</button>
+    <div id="cust-detail-content"></div>
+  </div>
+</div><div class="panel" id="panel-report">
+    <div class="report-toolbar">
+      <div class="period-btns">
+        <button class="period-btn" data-period="today" onclick="setPeriod('today')">Today</button>
+        <button class="period-btn" data-period="week" onclick="setPeriod('week')">7 Days</button>
+        <button class="period-btn" data-period="month" onclick="setPeriod('month')">This Month</button>
+        <button class="period-btn active" data-period="year" onclick="setPeriod('year')">This Year</button>
+        <button class="period-btn" data-period="custom" onclick="setPeriod('custom')">Custom</button>
+      </div>
+      <div id="custom-dates" style="display:none;margin-top:10px;display:none">
+        <div class="row">
+          <div class="field">
+            <label>From</label>
+            <input type="date" id="report-from" />
+          </div>
+          <div class="field">
+            <label>To</label>
+            <input type="date" id="report-to" />
+          </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:0" onclick="loadReport()">Apply</button>
+      </div>
+    </div>
+
+    <div id="report-summary" style="display:none">
+      <div class="report-totals" id="report-totals"></div>
+    </div>
+
+    <div id="report-list"><div class="empty-state">Select a period to load report</div></div>
+  </div>
+
+  <!-- LOCATIONS -->
+  <div class="panel" id="panel-locations">
+    <div id="locations-list"><div class="empty-state">Loading...</div></div>
+
+    <hr class="divider" />
+
+    <!-- Edit form -->
+    <div id="loc-edit-block" style="display:none">
+      <div class="section-title">✏️ Edit Location</div>
+      <input type="hidden" id="loc-edit-id" />
+      <div class="field">
+        <label>Name <span class="req">*</span></label>
+        <input type="text" id="ledit-name" placeholder="Branch name" />
+      </div>
+      <div class="field">
+        <label>Business Name (на чеках)</label>
+        <input type="text" id="ledit-business-name" placeholder="Название как оно будет на чеках" maxlength="255" />
+        <div class="hint">⚠️ Можно менять не более 3 раз в год · до 255 символов</div>
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <input type="text" id="ledit-desc" placeholder="Short description" />
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Phone</label>
+          <input type="text" id="ledit-phone" placeholder="+1 555 000 0000" />
+        </div>
+        <div class="field">
+          <label>Business Email</label>
+          <input type="email" id="ledit-email" placeholder="info@business.com" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Website</label>
+        <input type="text" id="ledit-website" placeholder="https://..." />
+      </div>
+      <div class="field">
+        <label>Address</label>
+        <input type="text" id="ledit-addr" placeholder="123 Main St" />
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>City</label>
+          <input type="text" id="ledit-city" placeholder="New York" />
+        </div>
+        <div class="field">
+          <label>State</label>
+          <input type="text" id="ledit-state" placeholder="NY" maxlength="2" />
+        </div>
+        <div class="field">
+          <label>ZIP</label>
+          <input type="text" id="ledit-zip" placeholder="10001" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Instagram</label>
+          <input type="text" id="ledit-instagram" placeholder="@handle" />
+        </div>
+        <div class="field">
+          <label>Twitter / X</label>
+          <input type="text" id="ledit-twitter" placeholder="@handle" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Facebook URL</label>
+        <input type="text" id="ledit-facebook" placeholder="https://facebook.com/..." />
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveLocation()" style="flex:1">Save Changes</button>
+        <button class="btn btn-sm" onclick="cancelEditLocation()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:13px 16px">Cancel</button>
+      </div>
+      <div class="result" id="result-loc-edit"></div>
+      <hr class="divider" />
+    </div>
+
+    <div class="section-title">➕ Create Location</div>
+    <div class="field">
+      <label>Name <span class="req">*</span></label>
+      <input type="text" id="loc-name" placeholder="e.g. Downtown Branch" />
+    </div>
+    <div class="field">
+      <label>Description (optional)</label>
+      <input type="text" id="loc-desc" placeholder="Additional info..." />
+    </div>
+    <div class="field">
+      <label>Address (optional)</label>
+      <input type="text" id="loc-addr" placeholder="123 Main St" />
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>City</label>
+        <input type="text" id="loc-city" placeholder="New York" />
+      </div>
+      <div class="field">
+        <label>State</label>
+        <input type="text" id="loc-state" placeholder="NY" maxlength="2" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>ZIP</label>
+        <input type="text" id="loc-zip" placeholder="10001" />
+      </div>
+      <div class="field">
+        <label>Timezone</label>
+        <select id="loc-tz">
+          <option value="America/New_York">Eastern (ET)</option>
+          <option value="America/Chicago">Central (CT)</option>
+          <option value="America/Denver">Mountain (MT)</option>
+          <option value="America/Los_Angeles">Pacific (PT)</option>
+          <option value="America/Anchorage">Alaska</option>
+          <option value="Pacific/Honolulu">Hawaii</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-create-loc" onclick="createLocation()">Create Location</button>
+    <div class="result" id="result-locations"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="panel" id="panel-settings">
+    <div class="section-title">Your Businesses</div>
+    <div class="profile-list" id="profile-list">Loading...</div>
+
+    <hr class="divider" />
+
+    <div id="oauth-connect-block" style="display:none;margin-bottom:20px">
+      <div class="section-title">Connect via Square OAuth</div>
+      <div class="field">
+        <label>Business Name (for the new profile)</label>
+        <input type="text" id="oauth-name" placeholder="e.g. My Salon" />
+      </div>
+      <button class="btn btn-primary" onclick="connectSquare()" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;gap:10px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0zm0 4.5a7.5 7.5 0 110 15 7.5 7.5 0 010-15z"/></svg>
+        Connect Square Account
+      </button>
+      <div style="font-size:12px;color:#6b7280;margin-top:8px;text-align:center">Вы будете перенаправлены на страницу Square для авторизации</div>
+      <hr class="divider" />
+    </div>
+
+    <div class="section-title" id="form-title">➕ Add Business</div>
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.7;color:#78350f">
+      <strong>📋 Где найти ключи в Square:</strong><br>
+      1. Зайдите на <a href="https://developer.squareup.com/console/en/apps" target="_blank" style="color:#006AFF">developer.squareup.com</a><br>
+      2. Нажмите <strong>+ New Application</strong> (или выберите существующее)<br>
+      3. Вкладка <strong>Credentials</strong> → скопируйте <strong>Production Access Token</strong> и <strong>Application ID</strong><br>
+      4. В левом меню → <strong>Locations</strong> → скопируйте <strong>Location ID</strong> нужного бизнеса
+    </div>
+    <input type="hidden" id="edit-id" />
+    <div class="field">
+      <label>Business Name <span class="req">*</span></label>
+      <input type="text" id="s-name" placeholder="e.g. Acme Salon" />
+    </div>
+    <div class="field">
+      <label>Access Token</label>
+      <input type="password" id="s-token" placeholder="EAAl... (leave blank to keep current)" autocomplete="off" />
+      <div class="hint" id="s-token-hint"></div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Application ID <span class="req">*</span></label>
+        <input type="text" id="s-appid" placeholder="sq0idp-..." autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Location ID <span class="req">*</span></label>
+        <input type="text" id="s-locid" placeholder="L..." autocomplete="off" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Max Amount per Transaction (optional)</label>
+      <div class="amount-wrap">
+        <span>$</span>
+        <input type="number" id="s-maxamount" placeholder="No limit" min="0.01" step="0.01" />
+      </div>
+      <div class="hint">Transactions above this amount will be blocked</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary" onclick="saveProfile()" style="flex:1">Save Business</button>
+      <button class="btn btn-sm" id="btn-cancel-edit" onclick="cancelEdit()" style="display:none;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:13px 16px">Cancel</button>
+    </div>
+    <div class="result" id="result-settings"></div>
+  </div>
+</div>
+
+<script>
+let card;
+let appId, locId;
+let profilesData = { activeId: null, profiles: [] };
+let squareJsLoaded = false;
+const locationsCache = {}; // id → location object
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function checkAuth() {
+  const res = await fetch('/api/auth-status').then(r => r.json());
+  if (res.authenticated) {
+    showApp();
+  } else {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  document.getElementById('login-screen').classList.add('visible');
+  document.getElementById('app').style.display = 'none';
+  setTimeout(() => document.getElementById('login-password').focus(), 100);
+}
+
+function showApp() {
+  document.getElementById('login-screen').classList.remove('visible');
+  document.getElementById('app').style.display = 'block';
+  init();
+}
+
+async function doLogin() {
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('btn-login');
+  const err = document.getElementById('login-error');
+  const input = document.getElementById('login-password');
+  err.style.display = 'none';
+  input.classList.remove('error');
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+
+  const rawRes = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const res = await rawRes.json();
+
+  if (res.success) {
+    showApp();
+  } else {
+    err.textContent = res.error || 'Неверный пароль';
+    err.style.display = 'block';
+    input.classList.add('error');
+    input.value = '';
+    input.focus();
+  }
+  btn.disabled = false;
+  btn.textContent = 'Sign In';
+}
+
+async function doLogout() {
+  await fetch('/api/logout', { method: 'POST' });
+  showLogin();
+}
+
+// ── OAuth ─────────────────────────────────────────────────────────────────────
+function connectSquare() {
+  const name = document.getElementById('oauth-name').value.trim() || 'New Business';
+  window.location.href = `/auth/square?name=${encodeURIComponent(name)}`;
+}
+
+function checkOAuthResult() {
+  const params = new URLSearchParams(window.location.search);
+  const oauth = params.get('oauth');
+  if (!oauth) return;
+  // Clean URL
+  window.history.replaceState({}, '', '/');
+  if (oauth === 'success') {
+    const name = params.get('name') || 'New Business';
+    setTimeout(() => {
+      showResult(document.getElementById('result-settings'), 'success', `✅ "${name}" подключён через Square OAuth!`);
+      switchTab('settings');
+    }, 500);
+  } else if (oauth === 'error') {
+    setTimeout(() => {
+      showResult(document.getElementById('result-settings'), 'error', '❌ OAuth error: ' + (params.get('msg') || 'Unknown'));
+      switchTab('settings');
+    }, 500);
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  checkOAuthResult();
+  const oauthCfg = await fetch('/api/oauth-config').then(r => r.json());
+  if (oauthCfg.enabled) {
+    document.getElementById('oauth-connect-block').style.display = 'block';
+  }
+  await loadProfiles();
+  await loadLinkLocations();
+  // Square.js NOT loaded here — only when user opens Manual Entry
+}
+
+function loadSquareJs() {
+  return new Promise((resolve, reject) => {
+    if (squareJsLoaded) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://web.squarecdn.com/v1/square.js';
+    script.onload = () => { squareJsLoaded = true; resolve(); };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+async function initSquare() {
+  await loadSquareJs();
+  const cfg = await fetch('/api/config').then(r => r.json());
+  appId = cfg.applicationId;
+  locId = cfg.locationId;
+  if (card) { try { await card.destroy(); } catch {} }
+  document.getElementById('card-container').innerHTML = '';
+  const payments = Square.payments(appId, locId);
+  card = await payments.card();
+  await card.attach('#card-container');
+}
+
+// ── Profiles ──────────────────────────────────────────────────────────────────
+async function loadProfiles() {
+  profilesData = await fetch('/api/profiles').then(r => r.json());
+  renderProfileSwitcher();
+  renderProfileList();
+  updateLimitInfo();
+}
+
+function updateLimitInfo() {
+  const active = profilesData.profiles.find(p => p.id === profilesData.activeId);
+  const el = document.getElementById('profile-limit-info');
+  if (active && active.maxAmount) {
+    el.textContent = `Max per transaction: $${active.maxAmount.toFixed(2)}`;
+  } else {
+    el.textContent = '';
+  }
+}
+
+function renderProfileSwitcher() {
+  const sel = document.getElementById('profile-switcher');
+  sel.innerHTML = profilesData.profiles.map(p =>
+    `<option value="${p.id}" ${p.id === profilesData.activeId ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+}
+
+function renderProfileList() {
+  const el = document.getElementById('profile-list');
+  if (!profilesData.profiles.length) {
+    el.innerHTML = '<div style="color:#6b7280;font-size:13px">No profiles yet.</div>';
+    return;
+  }
+  el.innerHTML = profilesData.profiles.map(p => `
+    <div class="profile-card ${p.active ? 'is-active' : ''}" id="card-${p.id}">
+      <div class="profile-card-header">
+        <div style="flex:1">
+          <div class="profile-card-name">${p.name}</div>
+          <div class="profile-card-sub">
+            ${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
+            ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
+          </div>
+        </div>
+        ${p.active ? '<span class="badge-active">Active</span>' : ''}
+      </div>
+      <div class="merchant-info loading" id="merchant-${p.id}">Loading merchant info...</div>
+      <div class="profile-card-actions">
+        ${!p.active ? `<button class="btn btn-primary btn-sm" onclick="switchProfile('${p.id}')">Activate</button>` : ''}
+        <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Load merchant info for all profiles
+  profilesData.profiles.forEach(p => loadMerchantInfo(p.id));
+}
+
+async function loadMerchantInfo(profileId) {
+  const el = document.getElementById(`merchant-${profileId}`);
+  if (!el) return;
+  try {
+    const [m, locData, bankData] = await Promise.all([
+      fetch(`/api/profiles/${profileId}/merchant`).then(r => r.json()),
+      fetch(`/api/profiles/${profileId}/locations`).then(r => r.json()),
+      fetch(`/api/profiles/${profileId}/bank-accounts`).then(r => r.json()),
+    ]);
+
+    if (m.error) {
+      el.className = 'merchant-info error-state';
+      el.innerHTML = `⚠️ ${m.error}`;
+      return;
+    }
+
+    const isActive = m.status === 'ACTIVE';
+    const statusDot = `<span class="status-dot ${isActive ? 'active' : 'inactive'}"></span>`;
+    const activeLocs = (locData.locations || []).filter(l => l.status === 'ACTIVE');
+    const canPay = activeLocs.some(l => l.canProcessPayments);
+
+    // Merchant info block
+    el.className = 'merchant-info';
+    el.innerHTML = `
+      <div class="merchant-grid">
+        <div class="merchant-field">
+          <label>Business Name</label>
+          <span>${m.business_name || m.company_name || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Status</label>
+          <span>${statusDot}${m.status || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Country</label>
+          <span>${m.country || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Currency</label>
+          <span>${m.currency || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Language</label>
+          <span>${m.language_code || '—'}</span>
+        </div>
+        <div class="merchant-field">
+          <label>Merchant ID</label>
+          <span style="font-size:10px">${m.id || '—'}</span>
+        </div>
+        <div class="merchant-field" style="grid-column:span 2">
+          <label>Payment Capability</label>
+          <span style="font-weight:600;${canPay ? 'color:#10b981' : 'color:#ef4444'}">${canPay ? '✅ Может принимать платежи' : '❌ Платежи недоступны'}</span>
+        </div>
+      </div>`;
+
+    // Bank accounts block
+    const accounts = bankData.accounts || [];
+    if (accounts.length > 0) {
+      const bankEl = document.createElement('div');
+      bankEl.className = 'bank-info';
+      bankEl.innerHTML = `<strong>🏦 Square Checking / Bank Account</strong>` +
+        accounts.map(a => {
+          const statusClass = a.status === 'VERIFIED' ? 'bank-verified' : a.status === 'VERIFICATION_IN_PROGRESS' ? 'bank-pending' : 'bank-disabled';
+          const statusLabel = a.status === 'VERIFIED' ? 'Verified' : a.status === 'VERIFICATION_IN_PROGRESS' ? 'Pending' : 'Disabled';
+          return `
+          <div class="bank-account">
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Bank</label>
+              <span style="font-family:inherit">${a.bankName || '—'} &nbsp;<span class="bank-status-badge ${statusClass}">${statusLabel}</span></span>
+            </div>
+            <div class="bank-field">
+              <label>Routing Number</label>
+              <span>${a.routingNumber || '—'}</span>
+            </div>
+            <div class="bank-field">
+              <label>Account</label>
+              <span>••••${a.accountNumberSuffix || '—'}</span>
+            </div>
+            <div class="bank-field">
+              <label>Type</label>
+              <span style="font-family:inherit">${a.accountType || '—'}</span>
+            </div>
+            <div class="bank-field">
+              <label>Deposits / Withdrawals</label>
+              <span style="font-family:inherit">${a.creditable ? '✅' : '❌'} / ${a.debitable ? '✅' : '❌'}</span>
+            </div>
+            ${a.holderName ? `
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Account Holder</label>
+              <span style="font-family:inherit">${a.holderName}</span>
+            </div>` : ''}
+            ${a.merchantId ? `
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Merchant ID</label>
+              <span style="font-size:10px">${a.merchantId}</span>
+            </div>` : ''}
+            ${a.locationId ? `
+            <div class="bank-field" style="grid-column:span 2">
+              <label>Location ID <span style="font-weight:400;color:#6b7280">(выплаты по локации)</span></label>
+              <span style="font-size:10px">${a.locationId}</span>
+            </div>` : ''}
+          </div>`;
+        }).join('');
+      el.parentNode.insertBefore(bankEl, el.nextSibling);
+    }
+
+  } catch (e) {
+    el.className = 'merchant-info error-state';
+    el.innerHTML = `⚠️ Failed to load`;
+  }
+}
+
+async function switchProfile(id) {
+  const res = await fetch(`/api/profiles/${id}/activate`, { method: 'POST' }).then(r => r.json());
+  if (res.success) {
+    profilesData.activeId = id;
+    profilesData.profiles.forEach(p => p.active = p.id === id);
+    renderProfileSwitcher();
+    renderProfileList();
+    updateLimitInfo();
+    document.getElementById('l-location').dataset.loaded = ''; // reset location cache
+    // Re-init Square.js only if Manual Entry tab is currently open
+    if (document.getElementById('panel-manual').classList.contains('active')) {
+      await initSquare();
+    }
+  }
+}
+
+function editProfile(id) {
+  const p = profilesData.profiles.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('edit-id').value = p.id;
+  document.getElementById('s-name').value = p.name;
+  document.getElementById('s-appid').value = p.applicationId;
+  document.getElementById('s-locid').value = p.locationId;
+  document.getElementById('s-maxamount').value = p.maxAmount || '';
+  document.getElementById('s-token').value = '';
+  document.getElementById('s-token-hint').textContent = 'Current: ' + p.accessTokenMasked;
+  document.getElementById('form-title').textContent = '✏️ Edit Business';
+  document.getElementById('btn-cancel-edit').style.display = 'inline-block';
+  document.getElementById('panel-settings').scrollTo({ top: 9999, behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  ['edit-id','s-name','s-appid','s-locid','s-token','s-maxamount'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('s-token-hint').textContent = '';
+  document.getElementById('form-title').textContent = '➕ Add Business';
+  document.getElementById('btn-cancel-edit').style.display = 'none';
+}
+
+async function saveProfile() {
+  const id = document.getElementById('edit-id').value;
+  const name = document.getElementById('s-name').value.trim();
+  const token = document.getElementById('s-token').value.trim();
+  const appId = document.getElementById('s-appid').value.trim();
+  const locId = document.getElementById('s-locid').value.trim();
+  const maxAmount = document.getElementById('s-maxamount').value.trim();
+  const result = document.getElementById('result-settings');
+
+  if (!name || !appId || !locId) {
+    showResult(result, 'error', 'Name, Application ID and Location ID are required.');
+    return;
+  }
+  if (!id && !token) {
+    showResult(result, 'error', 'Access Token is required for a new business.');
+    return;
+  }
+
+  const body = { name, applicationId: appId, locationId: locId };
+  if (id) body.id = id;
+  if (token) body.accessToken = token;
+  if (maxAmount) body.maxAmount = parseFloat(maxAmount);
+
+  const res = await fetch('/api/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showResult(result, 'success', '✅ Saved!');
+    cancelEdit();
+    await loadProfiles();
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Save failed'));
+  }
+}
+
+async function deleteProfile(id) {
+  const profile = profilesData.profiles.find(p => p.id === id);
+  const isActive = profile?.active;
+  const msg = isActive
+    ? `Удалить активный профиль "${profile?.name}"? Будет активирован следующий профиль.`
+    : `Удалить профиль "${profile?.name}" и всю его историю?`;
+  if (!confirm(msg)) return;
+  const res = await fetch(`/api/profiles/${id}`, { method: 'DELETE' }).then(r => r.json());
+  if (res.success) {
+    await loadProfiles();
+    if (isActive) await initSquare();
+  } else {
+    alert(res.error || 'Delete failed');
+  }
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+let historyCursor = null;
+
+async function initHistoryLocations() {
+  const sel = document.getElementById('history-location');
+  if (sel.dataset.loaded === profilesData.activeId) return;
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/locations`).then(r => r.json());
+    const locs = (data.locations || []).filter(l => l.status === 'ACTIVE');
+    const active = profilesData.profiles.find(p => p.id === profilesData.activeId);
+    sel.innerHTML = locs.map(l =>
+      `<option value="${l.id}" ${l.id === active?.locationId ? 'selected' : ''}>${l.name}</option>`
+    ).join('');
+    sel.dataset.loaded = profilesData.activeId;
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load</option>';
+  }
+}
+
+async function loadHistory() {
+  historyCursor = null;
+  document.getElementById('tx-list').innerHTML = '<div class="empty-state">Loading from Square...</div>';
+  document.getElementById('history-load-more').style.display = 'none';
+  await initHistoryLocations();
+  await fetchHistory(false);
+}
+
+async function loadMoreHistory() {
+  await fetchHistory(true);
+}
+
+async function fetchHistory(append) {
+  const activeId   = profilesData.activeId;
+  const locationId = document.getElementById('history-location').value;
+  if (!activeId || !locationId) return;
+
+  const params = new URLSearchParams({ location_id: locationId, limit: '50' });
+  if (append && historyCursor) params.set('cursor', historyCursor);
+
+  const data = await fetch(`/api/profiles/${activeId}/payments?${params}`).then(r => r.json());
+  const el = document.getElementById('tx-list');
+
+  if (data.error) {
+    const tokenMsg = data.tokenExpired ? '<br><button onclick="switchTab(\'settings\')" style="margin-top:8px;padding:6px 14px;background:#006AFF;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px">Обновить токен в настройках</button>' : '<br><small>Возможно нужен PAYMENTS_READ permission</small>';
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}${tokenMsg}</div>`;
+    return;
+  }
+
+  const payments = data.payments || [];
+  historyCursor = data.cursor || null;
+  document.getElementById('history-load-more').style.display = historyCursor ? 'block' : 'none';
+
+  if (!payments.length && !append) {
+    el.innerHTML = '<div class="empty-state">📭 Платежей не найдено</div>';
+    return;
+  }
+
+  const html = payments.map(p => {
+    const isOk   = p.status === 'COMPLETED';
+    const isFail = p.status === 'FAILED' || p.status === 'CANCELED';
+    const amt    = ((p.amount?.amount || 0) / 100).toFixed(2);
+    const fee    = p.processingFee ? `-$${(p.processingFee.amount / 100).toFixed(2)}` : '—';
+    const refund = p.refundedMoney ? `-$${(p.refundedMoney.amount / 100).toFixed(2)}` : '—';
+    const date   = new Date(p.createdAt).toLocaleString('ru-RU');
+    const statusColor = isOk ? '#10b981' : isFail ? '#ef4444' : '#f59e0b';
+    const itemClass = isOk ? 'completed' : isFail ? 'failed' : '';
+
+    const riskColor = { LOW: '#10b981', NORMAL: '#10b981', MODERATE: '#f59e0b', HIGH: '#ef4444' }[p.riskLevel] || '#9ca3af';
+
+    const declineLabels = {
+      'CARD_DECLINED':                       'Отказ банка (общий)',
+      'CARD_DECLINED_VERIFICATION_REQUIRED': 'Требуется верификация (3DS)',
+      'CVV_FAILURE':                         'Неверный CVV',
+      'ADDRESS_VERIFICATION_FAILURE':        'Неверный ZIP / адрес',
+      'EXPIRATION_FAILURE':                  'Карта просрочена',
+      'CARD_NOT_SUPPORTED':                  'Тип карты не поддерживается',
+      'INSUFFICIENT_FUNDS':                  'Недостаточно средств',
+      'TRANSACTION_LIMIT':                   'Превышен лимит транзакции',
+      'CARD_VELOCITY_EXCEEDED':              'Слишком много попыток',
+      'INVALID_ACCOUNT':                     'Счёт не существует',
+      'VOICE_FAILURE':                       'Требуется голосовая авторизация',
+      'PAN_FAILURE':                         'Неверный номер карты',
+      'BAD_EXPIRATION':                      'Неверная дата истечения',
+      'CHIP_INSERTION_REQUIRED':             'Требуется чип',
+      'ALLOWLIST_FAILURE':                   'Карта в стоп-листе',
+      'BLOCKED_BY_SQUARE':                   'Заблокировано Square',
+    };
+
+    return `
+    <div class="tx-item ${itemClass}">
+      <div class="tx-row">
+        <div class="tx-amount">$${amt} <span style="font-size:11px;font-weight:400;color:#6b7280">${p.currency || ''}</span></div>
+        <span style="font-size:11px;font-weight:700;color:${statusColor}">${p.status}</span>
+      </div>
+      ${p.note ? `<div class="tx-note" style="margin-top:3px">${p.note}</div>` : ''}
+      ${p.declineCode ? `<div class="tx-alert" style="margin-top:6px">❌ <strong>${declineLabels[p.declineCode] || p.declineCode}</strong>${p.declineDetail ? ' — ' + p.declineDetail : ''}</div>` : ''}
+      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}</div>
+
+      <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
+      <div class="tx-details" style="display:none">
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-bottom:2px">💳 Карта</div>
+        <div class="tx-detail"><label>Brand / Type</label><span>${p.card?.brand || '—'} ${p.card?.cardType ? '· '+p.card.cardType : ''}</span></div>
+        <div class="tx-detail"><label>Last 4 / Exp</label><span>${p.card?.last4 || '—'} ${p.card?.expMonth ? '· '+p.card.expMonth+'/'+p.card.expYear : ''}</span></div>
+        <div class="tx-detail"><label>Prepaid</label><span>${p.card?.prepaidType || '—'}</span></div>
+        <div class="tx-detail"><label>BIN</label><span>${p.card?.bin || '—'}</span></div>
+        <div class="tx-detail"><label>Cardholder</label><span>${p.card?.cardholderName || '—'}</span></div>
+        <div class="tx-detail"><label>Enabled</label><span>${p.card?.enabled === null ? '—' : p.card?.enabled ? '✅ Yes' : '❌ No'}</span></div>
+        <div class="tx-detail full"><label>Fingerprint</label><span>${p.card?.fingerprint || '—'}</span></div>
+        <div class="tx-detail full"><label>Card ID</label><span>${p.card?.cardId || '—'}</span></div>
+        <div class="tx-detail full"><label>Payment Account Ref</label><span>${p.card?.paymentAccountRef || '—'}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">🔐 Авторизация</div>
+        <div class="tx-detail"><label>Entry Method</label><span>${p.entryMethod || '—'}</span></div>
+        <div class="tx-detail"><label>Card Status</label><span>${p.cardStatus || '—'}</span></div>
+        <div class="tx-detail"><label>CVV Status</label><span>${p.cvvStatus || '—'}</span></div>
+        <div class="tx-detail"><label>AVS Status</label><span>${p.avsStatus || '—'}</span></div>
+        <div class="tx-detail"><label>Auth Code</label><span>${p.authResultCode || '—'}</span></div>
+        <div class="tx-detail full"><label>Statement Description</label><span>${p.statementDescription || '—'}</span></div>
+        <div class="tx-detail"><label>Authorized At</label><span>${p.authorizedAt ? new Date(p.authorizedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        <div class="tx-detail"><label>Captured At</label><span>${p.capturedAt ? new Date(p.capturedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        ${p.voidedAt ? `<div class="tx-detail"><label>Voided At</label><span>${new Date(p.voidedAt).toLocaleString('ru-RU')}</span></div>` : ''}
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">💰 Суммы</div>
+        <div class="tx-detail"><label>Amount</label><span>$${amt}</span></div>
+        <div class="tx-detail"><label>Approved</label><span>${p.approvedMoney ? '$'+(p.approvedMoney.amount/100).toFixed(2) : '—'}</span></div>
+        ${p.tip?.amount ? `<div class="tx-detail"><label>Tip</label><span>$${(p.tip.amount/100).toFixed(2)}</span></div>` : ''}
+        <div class="tx-detail"><label>Processing Fee</label><span>${fee} ${p.processingFeeType ? '('+p.processingFeeType+')' : ''}</span></div>
+        <div class="tx-detail"><label>Refunded</label><span>${refund}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">👤 Покупатель</div>
+        <div class="tx-detail"><label>Email</label><span>${p.buyerEmail || '—'}</span></div>
+        <div class="tx-detail"><label>Billing Name</label><span>${p.billingName || '—'}</span></div>
+        <div class="tx-detail"><label>Shipping Name</label><span>${p.shippingName || '—'}</span></div>
+        <div class="tx-detail"><label>Customer ID</label><span style="font-size:10px">${p.customerId || '—'}</span></div>
+
+        <div class="tx-detail full" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;padding-top:6px;padding-bottom:2px">📋 Прочее</div>
+        <div class="tx-detail full"><label>Payment ID</label><span>${p.id}</span></div>
+        <div class="tx-detail"><label>Order ID</label><span style="font-size:10px">${p.orderId || '—'}</span></div>
+        <div class="tx-detail"><label>Receipt #</label><span>${p.receiptNumber || '—'}</span></div>
+        <div class="tx-detail"><label>Risk Level</label><span style="color:${riskColor};font-weight:700">${p.riskLevel || '—'}</span></div>
+        <div class="tx-detail"><label>Risk Created</label><span>${p.riskCreatedAt ? new Date(p.riskCreatedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        <div class="tx-detail"><label>App / Source</label><span>${p.appProduct || '—'}</span></div>
+        <div class="tx-detail"><label>Updated At</label><span>${p.updatedAt ? new Date(p.updatedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        ${p.delayUntil ? `<div class="tx-detail"><label>Delayed Until</label><span>${new Date(p.delayUntil).toLocaleString('ru-RU')} (${p.delayAction || ''})</span></div>` : ''}
+
+        ${p.issuerAlerts?.length ? `
+        <div class="tx-detail full">
+          <div class="tx-alert">⚠️ <strong>Issuer Alert:</strong> ${p.issuerAlerts.map(a=>a.detail||JSON.stringify(a)).join('; ')}
+          ${p.issuerAlertsUpdatedAt ? `<br><span style="color:#9ca3af">Updated: ${new Date(p.issuerAlertsUpdatedAt).toLocaleString('ru-RU')}</span>` : ''}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  if (append) {
+    el.innerHTML += html;
+  } else {
+    el.innerHTML = html;
+  }
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active',
+      (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
+      (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
+      (i === 4 && tab === 'balance') || (i === 5 && tab === 'customers') ||
+      (i === 6 && tab === 'report') || (i === 7 && tab === 'settings')
+    );
+  });
+  ['manual','link','history','locations','balance','customers','report','settings'].forEach(id => {
+    document.getElementById('panel-' + id).classList.toggle('active', tab === id);
+  });
+  if (tab === 'manual')    initSquare();
+  if (tab === 'link')      loadLinkLocations();
+  if (tab === 'history')   loadHistory();
+  if (tab === 'locations') loadLocations();
+  if (tab === 'balance')   loadBalance();
+  if (tab === 'customers') loadCustomers();
+  if (tab === 'report')    loadReport();
+  if (tab === 'settings')  loadProfiles();
+}
+
+// ── Report ──────────────────────────────────────────────────────────────────── ────────────────────────────────────────────────────────────────────
+let currentPeriod = 'year';
+
+function setPeriod(period) {
+  currentPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.period === period)
+  );
+  const customDates = document.getElementById('custom-dates');
+  customDates.style.display = period === 'custom' ? 'block' : 'none';
+  if (period !== 'custom') loadReport();
+}
+
+async function loadReport() {
+  const el = document.getElementById('report-list');
+  const summaryEl = document.getElementById('report-summary');
+  el.innerHTML = '<div class="empty-state"><span class="spinner" style="border-color:rgba(0,106,255,0.3);border-top-color:#006AFF"></span> Loading from Square...</div>';
+  summaryEl.style.display = 'none';
+
+  const params = new URLSearchParams({ period: currentPeriod });
+  if (currentPeriod === 'custom') {
+    const from = document.getElementById('report-from').value;
+    const to   = document.getElementById('report-to').value;
+    if (!from || !to) { el.innerHTML = '<div class="empty-state">Select date range</div>'; return; }
+    params.set('begin', from);
+    params.set('end', to + 'T23:59:59');
+  }
+
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/report?${params}`).then(r => r.json());
+    if (data.error) {
+      const tokenMsg = data.tokenExpired ? '<br><button onclick="switchTab(\'settings\')" style="margin-top:8px;padding:6px 14px;background:#006AFF;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px">Обновить токен</button>' : '<br><small>Your Access Token may need PAYMENTS_READ permission</small>';
+      el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}${tokenMsg}</div>`;
+      return;
+    }
+
+    const activeLocs = data.locations.filter(l => l.status === 'ACTIVE');
+    const inactiveLocs = data.locations.filter(l => l.status !== 'ACTIVE');
+
+    // Grand totals
+    const grandTotal   = activeLocs.reduce((s, l) => s + parseFloat(l.totalAmount  || 0), 0);
+    const grandNet     = activeLocs.reduce((s, l) => s + parseFloat(l.net          || 0), 0);
+    const grandFees    = activeLocs.reduce((s, l) => s + parseFloat(l.totalFees    || 0), 0);
+    const grandRefunds = activeLocs.reduce((s, l) => s + parseFloat(l.totalRefunds || 0), 0);
+    const grandCount   = activeLocs.reduce((s, l) => s + (l.countOk || 0), 0);
+
+    const periodLabel = { today: 'Today', week: 'Last 7 Days', month: 'This Month', year: 'This Year', custom: 'Custom Range' }[currentPeriod];
+
+    document.getElementById('report-totals').innerHTML = `
+      <div class="report-total-card highlight" style="grid-column:span 2">
+        <div class="report-total-label">Total Revenue · ${periodLabel}</div>
+        <div class="report-total-value">$${grandTotal.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Net (after fees)</div>
+        <div class="report-total-value">$${grandNet.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Processing Fees</div>
+        <div class="report-total-value" style="color:#ef4444">-$${grandFees.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Refunds</div>
+        <div class="report-total-value" style="color:#f59e0b">-$${grandRefunds.toFixed(2)}</div>
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">Completed Payments</div>
+        <div class="report-total-value">${grandCount}</div>
+      </div>`;
+    summaryEl.style.display = 'block';
+
+    el.innerHTML = activeLocs.map(l => {
+      const isCurrent = l.locationId === (profilesData.profiles.find(p => p.id === profilesData.activeId)?.locationId);
+      return `
+        <div class="report-loc-card ${isCurrent ? 'is-current' : ''}">
+          <div class="report-loc-header">
+            <div>
+              <div class="report-loc-name">${l.locationName}${isCurrent ? ' <span style="font-size:11px;color:#006AFF">(current)</span>' : ''}</div>
+              <div style="font-size:11px;color:#9ca3af">${l.countOk} payments · ${l.currency}</div>
+            </div>
+            <div class="report-loc-total">$${l.totalAmount}</div>
+          </div>
+          <div class="report-loc-body">
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#10b981">$${l.net}</div>
+              <div class="report-stat-lbl">Net</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#ef4444">-$${l.totalFees}</div>
+              <div class="report-stat-lbl">Fees</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#f59e0b">-$${l.totalRefunds}</div>
+              <div class="report-stat-lbl">Refunds</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val" style="color:#ef4444">${l.countFailed}</div>
+              <div class="report-stat-lbl">Failed</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('') +
+    (inactiveLocs.length ? `<div class="report-inactive" style="margin-top:8px">+ ${inactiveLocs.length} inactive location(s) skipped</div>` : '');
+
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${e.message}</div>`;
+  }
+}
+
+// ── Link Locations selector ───────────────────────────────────────────────────
+async function loadLinkLocations() {
+  const sel = document.getElementById('l-location');
+  if (sel.dataset.loaded === profilesData.activeId) return; // already loaded for this profile
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/locations`).then(r => r.json());
+    const locs = (data.locations || []).filter(l => l.status === 'ACTIVE');
+    if (!locs.length) {
+      sel.innerHTML = '<option value="">No active locations found</option>';
+      return;
+    }
+    const active = profilesData.profiles.find(p => p.id === profilesData.activeId);
+    sel.innerHTML = locs.map(l =>
+      `<option value="${l.id}" ${l.id === active?.locationId ? 'selected' : ''}>${l.name}${l.address ? ' — ' + l.address : ''}</option>`
+    ).join('');
+    sel.dataset.loaded = profilesData.activeId;
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load locations</option>';
+  }
+}
+
+// ── Locations ─────────────────────────────────────────────────────────────────
+async function loadLocations() {
+  const el = document.getElementById('locations-list');
+  el.innerHTML = '<div class="empty-state">Loading...</div>';
+  const activeId = profilesData.activeId;
+  if (!activeId) return;
+
+  try {
+    const data = await fetch(`/api/profiles/${activeId}/locations`).then(r => r.json());
+    if (data.error) {
+      el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}</div>`;
+      return;
+    }
+    const locs = data.locations || [];
+    if (!locs.length) {
+      el.innerHTML = '<div class="empty-state">No locations found</div>';
+      return;
+    }
+    // Cache locations for editLocation()
+    locs.forEach(l => locationsCache[l.id] = l);
+    el.innerHTML = locs.map(l => {
+      const isActive = l.isActive;
+      const statusClass = l.status === 'ACTIVE' ? 'loc-status-active' : 'loc-status-inactive';
+      const total = l.totals.charged + l.totals.links;
+      return `
+        <div class="loc-card ${isActive ? 'loc-active' : ''}">
+          <div class="loc-header">
+            <div style="flex:1">
+              <div class="loc-name">${l.name}${isActive ? ' <span style="font-size:11px;color:#006AFF">(current)</span>' : ''}</div>
+              ${l.address ? `<div class="loc-addr">📍 ${l.address}</div>` : ''}
+              <div class="loc-addr">${l.timezone || ''} · ${l.currency || ''} · ${l.type || ''}</div>
+              <div class="loc-addr" style="font-size:10px;color:#9ca3af">${l.id}</div>
+              ${l.created_at ? `<div class="loc-addr" style="font-size:10px;color:#9ca3af">Создана: ${new Date(l.created_at).toLocaleDateString('ru-RU', {day:'2-digit',month:'long',year:'numeric'})}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <span class="loc-status-badge ${statusClass}">${l.status}</span>
+              <div style="font-size:11px;font-weight:600;line-height:1.8;text-align:right">
+                <div style="color:${l.capabilities.includes('CREDIT_CARD_PROCESSING') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('CREDIT_CARD_PROCESSING') ? '✅' : '❌'} Приём карт</div>
+                <div style="color:${l.capabilities.includes('AUTOMATIC_TRANSFERS') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('AUTOMATIC_TRANSFERS') ? '✅' : '❌'} Автовывод</div>
+                <div style="color:${l.capabilities.includes('UNLINKED_REFUNDS') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('UNLINKED_REFUNDS') ? '✅' : '❌'} Возвраты</div>
+              </div>
+              <button class="btn btn-sm btn-primary" onclick="editLocation('${l.id}')">Edit</button>
+            </div>
+          </div>
+          <div class="loc-stats">
+            <div class="loc-stat">
+              <div class="loc-stat-value">$${total.toFixed(2)}</div>
+              <div class="loc-stat-label">Total via Terminal</div>
+            </div>
+            <div class="loc-stat">
+              <div class="loc-stat-value">$${l.totals.charged.toFixed(2)}</div>
+              <div class="loc-stat-label">Charged</div>
+            </div>
+            <div class="loc-stat">
+              <div class="loc-stat-value">${l.totals.count}</div>
+              <div class="loc-stat-label">Transactions</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${e.message}</div>`;
+  }
+}
+
+function editLocation(id) {
+  const l = locationsCache[id];
+  if (!l) { alert('Location data not found, please refresh'); return; }
+  document.getElementById('loc-edit-id').value     = l.id;
+  document.getElementById('ledit-name').value          = l.name || '';
+  document.getElementById('ledit-business-name').value = l.business_name || '';
+  document.getElementById('ledit-desc').value           = l.description || '';
+  document.getElementById('ledit-phone').value     = l.phone_number || '';
+  document.getElementById('ledit-email').value     = l.business_email || '';
+  document.getElementById('ledit-website').value   = l.website_url || '';
+  document.getElementById('ledit-addr').value      = l.address_line_1 || '';
+  document.getElementById('ledit-city').value      = l.city || '';
+  document.getElementById('ledit-state').value     = l.state || '';
+  document.getElementById('ledit-zip').value       = l.postal_code || '';
+  document.getElementById('ledit-instagram').value = l.instagram_username || '';
+  document.getElementById('ledit-twitter').value   = l.twitter_username || '';
+  document.getElementById('ledit-facebook').value  = l.facebook_url || '';
+  document.getElementById('result-loc-edit').style.display = 'none';
+  const block = document.getElementById('loc-edit-block');
+  block.style.display = 'block';
+  block.scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEditLocation() {
+  document.getElementById('loc-edit-block').style.display = 'none';
+}
+
+async function saveLocation() {
+  const locId   = document.getElementById('loc-edit-id').value;
+  const result  = document.getElementById('result-loc-edit');
+  const btn     = document.querySelector('#loc-edit-block .btn-primary');
+
+  const body = {
+    name:               document.getElementById('ledit-name').value.trim(),
+    business_name:      document.getElementById('ledit-business-name').value.trim(),
+    description:        document.getElementById('ledit-desc').value.trim(),
+    phone_number:       document.getElementById('ledit-phone').value.trim(),
+    business_email:     document.getElementById('ledit-email').value.trim(),
+    website_url:        document.getElementById('ledit-website').value.trim(),
+    address_line_1:     document.getElementById('ledit-addr').value.trim(),
+    city:               document.getElementById('ledit-city').value.trim(),
+    state:              document.getElementById('ledit-state').value.trim(),
+    postal_code:        document.getElementById('ledit-zip').value.trim(),
+    instagram_username: document.getElementById('ledit-instagram').value.trim(),
+    twitter_username:   document.getElementById('ledit-twitter').value.trim(),
+    facebook_url:       document.getElementById('ledit-facebook').value.trim(),
+  };
+
+  if (!body.name) { showResult(result, 'error', 'Name is required'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Saving...';
+
+  const res = await fetch(`/api/profiles/${profilesData.activeId}/locations/${locId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showResult(result, 'success', `✅ Location "${res.location.name}" updated!`);
+    loadLocations(); // refresh list
+    document.getElementById('l-location').dataset.loaded = ''; // reset link tab cache
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Failed to save'));
+  }
+  btn.disabled = false;
+  btn.innerHTML = 'Save Changes';
+}
+
+async function createLocation() {
+  const name    = document.getElementById('loc-name').value.trim();
+  const desc    = document.getElementById('loc-desc').value.trim();
+  const addr    = document.getElementById('loc-addr').value.trim();
+  const city    = document.getElementById('loc-city').value.trim();
+  const state   = document.getElementById('loc-state').value.trim();
+  const zip     = document.getElementById('loc-zip').value.trim();
+  const tz      = document.getElementById('loc-tz').value;
+  const btn     = document.getElementById('btn-create-loc');
+  const result  = document.getElementById('result-locations');
+
+  if (!name) { showResult(result, 'error', 'Location name is required.'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating...';
+  result.style.display = 'none';
+
+  const res = await fetch(`/api/profiles/${profilesData.activeId}/locations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: desc, address_line_1: addr, city, state, postal_code: zip, timezone: tz }),
+  }).then(r => r.json());
+
+  if (res.success) {
+    showResult(result, 'success', `✅ Location "${res.location.name}" created! ID: ${res.location.id}`);
+    ['loc-name','loc-desc','loc-addr','loc-city','loc-state','loc-zip'].forEach(id => document.getElementById(id).value = '');
+    loadLocations();
+  } else {
+    showResult(result, 'error', '❌ ' + (res.error || 'Failed to create location'));
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Create Location';
+}
+
+// ── Validation ────────────────────────────────────────────────────────────────
+function clearErrors() {
+  document.querySelectorAll('.field-error').forEach(el => el.textContent = '');
+  document.querySelectorAll('input.error, textarea.error').forEach(el => el.classList.remove('error'));
+}
+
+function fieldError(id, msg) {
+  const input = document.getElementById(id);
+  if (input) input.classList.add('error');
+  const err = document.getElementById('err-' + id);
+  if (err) err.textContent = msg;
+}
+
+// ── Charge ────────────────────────────────────────────────────────────────────
+async function chargeCard() {
+  clearErrors();
+  const amount = document.getElementById('m-amount').value;
+  const note   = document.getElementById('m-note').value.trim();
+  const name   = document.getElementById('m-name').value.trim();
+  const email  = document.getElementById('m-email').value.trim();
+  const zip    = document.getElementById('m-zip').value.trim();
+  const btn    = document.getElementById('btn-charge');
+  const result = document.getElementById('result-manual');
+
+  let valid = true;
+  if (!amount || parseFloat(amount) <= 0) { fieldError('m-amount', 'Required'); valid = false; }
+  if (!note) { fieldError('m-note', 'Please describe what this payment is for'); valid = false; }
+  if (!email) { fieldError('m-email', 'Email is required to send a receipt and reduce chargebacks'); valid = false; }
+  if (!zip)  { fieldError('m-zip', 'ZIP code helps verify the card and reduce fraud'); valid = false; }
+  if (!valid) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Processing...';
+  result.style.display = 'none';
+
+  try {
+    const tokenResult = await card.tokenize();
+    if (tokenResult.status !== 'OK') throw new Error(tokenResult.errors?.map(e => e.message).join(', ') || 'Tokenization failed');
+
+    const payments = Square.payments(appId, locId);
+    const verifyResult = await payments.verifyBuyer(tokenResult.token, {
+      intent: 'CHARGE', customerInitiated: true, sellerKeyedIn: true,
+      amount: parseFloat(amount).toFixed(2), currencyCode: 'USD',
+      billingContact: { postalCode: zip },
+    });
+
+    const res = await fetch('/api/charge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceId: tokenResult.token,
+        verificationToken: verifyResult?.token,
+        amount, currency: 'USD',
+        note: [name, note].filter(Boolean).join(' — '),
+        buyerEmail: email,
+      }),
+    }).then(r => r.json());
+
+    if (res.success) {
+      const receipt = res.receiptUrl ? ` <a href="${res.receiptUrl}" target="_blank" style="color:#065f46">View Receipt ↗</a>` : '';
+      showResult(result, 'success', `✅ Payment successful!<br>ID: ${res.paymentId}${receipt}`);
+      // Clear form
+      ['m-amount','m-note','m-name','m-email','m-zip'].forEach(id => document.getElementById(id).value = '');
+    } else {
+      showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Payment failed'));
+    }
+  } catch (e) {
+    showResult(result, 'error', '❌ ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Charge';
+}
+
+// ── Payment Link ──────────────────────────────────────────────────────────────
+async function createLink() {
+  clearErrors();
+  const locationId = document.getElementById('l-location').value;
+  const amount = document.getElementById('l-amount').value;
+  const title  = document.getElementById('l-title').value.trim();
+  const desc   = document.getElementById('l-desc').value.trim();
+  const btn    = document.getElementById('btn-link');
+  const result = document.getElementById('result-link');
+
+  let valid = true;
+  if (!locationId) { fieldError('l-location', 'Please select a location'); valid = false; }
+  if (!amount || parseFloat(amount) <= 0) { fieldError('l-amount', 'Required'); valid = false; }
+  if (!title) { fieldError('l-title', 'Title is required — it appears on the payment page'); valid = false; }
+  if (!valid) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Generating...';
+  result.style.display = 'none';
+
+  const res = await fetch('/api/payment-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, currency: 'USD', title, description: desc, locationId }),
+  }).then(r => r.json());
+
+  if (res.success) {
+    result.className = 'result success';
+    result.style.display = 'block';
+    result.innerHTML = `✅ Link created!
+      <div class="link-box">
+        <input type="text" id="link-url" value="${res.url}" readonly />
+        <button class="btn-copy" onclick="copyLink()">Copy</button>
+      </div>`;
+    document.getElementById('l-amount').value = '';
+    document.getElementById('l-title').value = '';
+    document.getElementById('l-desc').value = '';
+  } else {
+    showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Failed'));
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Generate Link';
+}
+
+function copyLink() {
+  navigator.clipboard.writeText(document.getElementById('link-url').value).then(() => {
+    const btn = document.querySelector('.btn-copy');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+
+function showResult(el, type, msg) {
+  el.className = 'result ' + type;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
+// ── Balance ──────────────────────────────────────────────────────────────────
+async function loadBalance() {
+  const list = document.getElementById('balance-list');
+  list.innerHTML = '<p style="color:#6b7280;font-size:14px;">Loading...</p>';
+  try {
+    const profilesRes = await fetch('/api/profiles', { credentials: 'include' });
+    const profilesData = await profilesRes.json();
+    const profiles = profilesData.profiles || [];
+
+    const results = await Promise.all(profiles.map(async p => {
+      try {
+        const r = await fetch(`/api/profiles/${p.id}/balance`, { credentials: 'include' });
+        const data = await r.json();
+        return { profile: p, balance: data, error: null };
+      } catch (e) {
+        return { profile: p, balance: null, error: e.message };
+      }
+    }));
+
+    if (!results.length) {
+      list.innerHTML = '<p style="color:#6b7280;font-size:14px;">No profiles found.</p>';
+      return;
+    }
+
+    list.innerHTML = results.map(({ profile, balance, error }) => {
+      const available = balance?.available?.[0];
+      const pending   = balance?.pending?.[0];
+      const currency  = available?.currency || pending?.currency || 'USD';
+      const availAmt  = available ? `$${available.amount}` : '—';
+      const pendAmt   = pending   ? `$${pending.amount}`   : '—';
+      const isActive  = profile.active ? ' border-color:#006AFF;' : '';
+      return `
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;${isActive}border-radius:10px;padding:16px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <span style="font-size:14px;font-weight:700;color:#111827;">${profile.name}</span>
+            ${profile.active ? '<span style="background:#eff6ff;color:#006AFF;font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;">Active</span>' : ''}
+          </div>
+          ${error ? `<p style="color:#ef4444;font-size:13px;">Error: ${error}</p>` : `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Available</div>
+              <div style="font-size:22px;font-weight:700;color:#059669;">${availAmt}</div>
+              <div style="font-size:11px;color:#9ca3af;">${currency}</div>
+            </div>
+            <div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Pending</div>
+              <div style="font-size:22px;font-weight:700;color:#d97706;">${pendAmt}</div>
+              <div style="font-size:11px;color:#9ca3af;">${currency}</div>
+            </div>
+          </div>`}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<p style="color:#ef4444;font-size:14px;">Error: ${e.message}</p>`;
+  }
+}
+
+
+// ── Customers ───────────────────────────────────────────────────────────────
+let customersCursor = null;
+let segmentsCache = {};
+let customerSearchTimeout = null;
+
+function debouncedCustomerSearch() {
+  clearTimeout(customerSearchTimeout);
+  customerSearchTimeout = setTimeout(() => loadCustomers(), 400);
+}
+
+async function loadSegments() {
+  if (Object.keys(segmentsCache).length) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customer-segments`);
+    const data = await r.json();
+    (data.segments || []).forEach(s => { segmentsCache[s.id] = s.name; });
+  } catch {}
+}
+
+async function loadCustomers() {
+  customersCursor = null;
+  document.getElementById('customers-list').innerHTML = '<p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">Loading...</p>';
+  document.getElementById('customers-load-more').style.display = 'none';
+  document.getElementById('cust-detail').style.display = 'none';
+  await loadSegments();
+  await fetchCustomers(false);
+}
+
+async function loadMoreCustomers() { await fetchCustomers(true); }
+
+async function fetchCustomers(append) {
+  const query = document.getElementById('cust-search').value.trim();
+  const params = new URLSearchParams({ limit: '50' });
+  if (query) params.set('query', query);
+  if (append && customersCursor) params.set('cursor', customersCursor);
+  try {
+    const data = await fetch('/api/profiles/' + profilesData.activeId + '/customers?' + params).then(r => r.json());
+    if (data.error) { document.getElementById('customers-list').innerHTML = '<p style="color:#ef4444;font-size:13px">' + data.error + '</p>'; return; }
+    customersCursor = data.cursor || null;
+    document.getElementById('customers-load-more').style.display = customersCursor ? 'block' : 'none';
+    const customers = data.customers || [];
+    if (!customers.length && !append) { document.getElementById('customers-list').innerHTML = '<p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">No customers found</p>'; return; }
+    const html = customers.map(c => {
+      const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'Unknown';
+      const segs = c.segmentIds.map(id => segmentsCache[id] || '').filter(Boolean);
+      return '<div onclick="openCustomer(\'' + c.id + '\')" style="border:1px solid #e5e7eb;border-radius:8px;padding:11px 13px;margin-bottom:8px;cursor:pointer" onmouseover="this.style.borderColor=\'#006AFF\'" onmouseout="this.style.borderColor=\'#e5e7eb\'">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
+        '<div><div style="font-size:14px;font-weight:700;color:#111827">' + name + '</div>' +
+        (c.email ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">✉️ ' + c.email + '</div>' : '') +
+        (c.phone ? '<div style="font-size:12px;color:#6b7280;margin-top:1px">📞 ' + c.phone + '</div>' : '') +
+        '</div><div style="text-align:right">' +
+        '<div style="font-size:10px;color:#9ca3af">' + new Date(c.createdAt).toLocaleDateString('ru-RU') + '</div>' +
+        '<div style="font-size:10px;color:#9ca3af;margin-top:2px">' + c.source + '</div></div></div>' +
+        (segs.length ? '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;padding:2px 7px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
+        '</div>';
+    }).join('');
+    const el = document.getElementById('customers-list');
+    if (append) el.innerHTML += html; else el.innerHTML = html;
+  } catch (e) { document.getElementById('customers-list').innerHTML = '<p style="color:#ef4444;font-size:13px">Error: ' + e.message + '</p>'; }
+}
+
+async function openCustomer(customerId) {
+  document.getElementById('cust-detail').style.display = 'block';
+  document.getElementById('cust-detail-content').innerHTML = '<p style="color:#6b7280;font-size:14px">Loading...</p>';
+  document.getElementById('cust-detail').scrollIntoView({ behavior: 'smooth' });
+  try {
+    const [cust, pmts] = await Promise.all([
+      fetch('/api/profiles/' + profilesData.activeId + '/customers/' + customerId).then(r => r.json()),
+      fetch('/api/profiles/' + profilesData.activeId + '/customers/' + customerId + '/payments').then(r => r.json()),
+    ]);
+    const name = [cust.givenName, cust.familyName].filter(Boolean).join(' ') || 'Unknown';
+    const segs = (cust.segmentIds || []).map(id => segmentsCache[id] || '').filter(Boolean);
+    const payments = pmts.payments || [];
+    const totalSpent = payments.filter(p => p.state === 'COMPLETED' || p.state === 'OPEN').reduce((s, p) => s + parseFloat(p.total), 0);
+    document.getElementById('cust-detail-content').innerHTML =
+      '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px">' +
+      '<div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:12px">' + name + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">' +
+      (cust.email ? '<div><span style="color:#9ca3af;font-size:11px;display:block">Email</span>' + cust.email + '</div>' : '') +
+      (cust.phone ? '<div><span style="color:#9ca3af;font-size:11px;display:block">Phone</span><strong>' + cust.phone + '</strong></div>' : '') +
+      (cust.address ? '<div style="grid-column:span 2"><span style="color:#9ca3af;font-size:11px;display:block">Address</span>' + cust.address + '</div>' : '') +
+      (cust.birthday ? '<div><span style="color:#9ca3af;font-size:11px;display:block">Birthday</span>' + cust.birthday + '</div>' : '') +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Source</span>' + cust.source + '</div>' +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Customer since</span>' + new Date(cust.createdAt).toLocaleDateString('ru-RU') + '</div>' +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Total spent</span><strong style="color:#059669;font-size:15px">$' + totalSpent.toFixed(2) + '</strong></div>' +
+      '<div><span style="color:#9ca3af;font-size:11px;display:block">Orders</span><strong style="font-size:15px">' + payments.length + '</strong></div>' +
+      '</div>' +
+      (cust.note ? '<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border-radius:6px;font-size:12px;color:#78350f">📝 ' + cust.note + '</div>' : '') +
+      (segs.length ? '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:11px;padding:3px 9px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
+      '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Payment History</div>' +
+      (!payments.length ? '<p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">No payments found</p>' :
+        payments.map(p => {
+          const sc = p.state === 'COMPLETED' ? '#059669' : p.state === 'OPEN' ? '#d97706' : '#ef4444';
+          return '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:11px 13px;margin-bottom:8px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span style="font-size:15px;font-weight:700;color:#111827">$' + p.total + ' <span style="font-size:11px;font-weight:400;color:#6b7280">' + p.currency + '</span></span>' +
+            '<span style="font-size:11px;font-weight:700;color:' + sc + '">' + p.state + '</span></div>' +
+            p.lineItems.map(i => '<div style="font-size:12px;color:#6b7280;margin-top:3px">' + i.name + ' \xd7 ' + i.qty + ' \u2014 $' + i.price + '</div>').join('') +
+            '<div style="font-size:11px;color:#9ca3af;margin-top:4px">' + new Date(p.createdAt).toLocaleString('ru-RU') + '</div></div>';
+        }).join(''));
+  } catch (e) { document.getElementById('cust-detail-content').innerHTML = '<p style="color:#ef4444">Error: ' + e.message + '</p>'; }
+}
+
+function closeCustomerDetail() { document.getElementById('cust-detail').style.display = 'none'; }
+checkAuth();
+</script>
+</body>
+</html>
+
+
+
