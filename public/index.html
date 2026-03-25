@@ -1087,6 +1087,85 @@ async function deleteProfile(id) {
   }
 }
 
+// ── Decline dictionaries (shared by renderPayments + chargeCard) ──────────────────────
+const declineLabels = {
+  'CARD_DECLINED':                       'Отказ банка (общий)',
+  'CARD_DECLINED_VERIFICATION_REQUIRED': 'Требуется верификация (3DS)',
+  'CVV_FAILURE':                         'Неверный CVV',
+  'ADDRESS_VERIFICATION_FAILURE':        'Неверный ZIP / адрес',
+  'EXPIRATION_FAILURE':                  'Карта просрочена',
+  'CARD_NOT_SUPPORTED':                  'Тип карты не поддерживается',
+  'INSUFFICIENT_FUNDS':                  'Недостаточно средств',
+  'TRANSACTION_LIMIT':                   'Превышен лимит транзакции',
+  'CARD_VELOCITY_EXCEEDED':              'Слишком много попыток',
+  'INVALID_ACCOUNT':                     'Счёт не существует',
+  'VOICE_FAILURE':                       'Требуется голосовая авторизация',
+  'PAN_FAILURE':                         'Неверный номер карты',
+  'BAD_EXPIRATION':                      'Неверная дата истечения',
+  'CHIP_INSERTION_REQUIRED':             'Требуется чип',
+  'ALLOWLIST_FAILURE':                   'Карта в стоп-листе',
+  'BLOCKED_BY_SQUARE':                   'Заблокировано Square',
+  // Дополнительные коды Square
+  'GENERIC_DECLINE':                     'Общий отказ',
+  'TEMPORARY_ERROR':                     'Временная ошибка',
+  'CARD_TOKEN_EXPIRED':                  'Токен карты истёк',
+  'CARD_TOKEN_USED':                     'Токен карты уже использован',
+  'MANUALLY_ENTERED_PAYMENT_NOT_ACCEPTED': 'Ручной ввод не принимается',
+  'PAYMENT_LIMIT_EXCEEDED':              'Лимит платежей превышен',
+  'INVALID_CARD':                        'Недействительная карта',
+  'INVALID_LOCATION':                    'Недействительная локация',
+  'INVALID_FEES':                        'Неверные комиссии',
+  'CARDHOLDER_INSUFFICIENT_PERMISSIONS': 'Недостаточно прав у держателя карты',
+  'INVALID_PIN':                         'Неверный PIN',
+  'CARD_EXPIRED':                        'Карта просрочена',
+  'GIFT_CARD_AVAILABLE_AMOUNT':          'Недостаточно средств на подарочной карте',
+  'INSUFFICIENT_PERMISSIONS':            'Недостаточно прав',
+};
+
+const declineHints = {
+  'CARD_DECLINED':                       'Попросите клиента связаться с банком или используйте другую карту',
+  'CARD_DECLINED_VERIFICATION_REQUIRED': 'Клиент должен пройти 3D Secure верификацию',
+  'CVV_FAILURE':                         'Проверьте CVV-код на обратной стороне карты',
+  'ADDRESS_VERIFICATION_FAILURE':        'Проверьте ZIP-код — он должен совпадать с адресом billing',
+  'EXPIRATION_FAILURE':                  'Карта просрочена — используйте другую карту',
+  'CARD_NOT_SUPPORTED':                  'Этот тип карты не принимается — используйте Visa/MC/Amex',
+  'INSUFFICIENT_FUNDS':                  'Недостаточно средств — уменьшите сумму или используйте другую карту',
+  'TRANSACTION_LIMIT':                   'Разбейте на несколько платежей или используйте другую карту',
+  'CARD_VELOCITY_EXCEEDED':              'Слишком много попыток — подождите и попробуйте позже',
+  'INVALID_ACCOUNT':                     'Счёт закрыт или не существует — используйте другую карту',
+  'VOICE_FAILURE':                       'Требуется голосовая авторизация — клиент должен позвонить в банк',
+  'PAN_FAILURE':                         'Проверьте номер карты — введён с ошибкой',
+  'BAD_EXPIRATION':                      'Проверьте дату истечения карты',
+  'CHIP_INSERTION_REQUIRED':             'Используйте чип-ридер вместо ручного ввода',
+  'ALLOWLIST_FAILURE':                   'Карта заблокирована — обратитесь в банк',
+  'BLOCKED_BY_SQUARE':                   'Платёж заблокирован системой безопасности Square',
+  'GENERIC_DECLINE':                     'Банк отклонил без причины — попробуйте другую карту',
+  'TEMPORARY_ERROR':                     'Временная ошибка — повторите через минуту',
+  'CARD_TOKEN_EXPIRED':                  'Обновите страницу и введите карту заново',
+  'CARD_TOKEN_USED':                     'Обновите страницу и введите карту заново',
+  'MANUALLY_ENTERED_PAYMENT_NOT_ACCEPTED': 'Мерчант не принимает ручной ввод — используйте Payment Link',
+  'PAYMENT_LIMIT_EXCEEDED':              'Превышен лимит платежей — попробуйте завтра или с другого аккаунта',
+  'INVALID_CARD':                        'Карта недействительна — используйте другую',
+  'INVALID_LOCATION':                    'Проверьте настройки локации в профиле',
+  'INVALID_FEES':                        'Ошибка комиссий — обратитесь в поддержку Square',
+  'CARDHOLDER_INSUFFICIENT_PERMISSIONS': 'Держатель карты не имеет прав на эту операцию',
+  'INVALID_PIN':                         'Неверный PIN — попросите клиента повторить',
+  'CARD_EXPIRED':                        'Карта просрочена — используйте другую',
+  'GIFT_CARD_AVAILABLE_AMOUNT':          'На подарочной карте недостаточно средств — разбейте платёж',
+  'INSUFFICIENT_PERMISSIONS':            'Недостаточно прав — проверьте настройки аккаунта Square',
+};
+
+const categoryLabels = {
+  'PAYMENT_METHOD_ERROR':   'Проблема с картой/банком',
+  'AUTHENTICATION_ERROR':   'Ошибка аутентификации',
+  'AUTHORIZATION_ERROR':    'Ошибка авторизации',
+  'INVALID_REQUEST_ERROR':  'Неверный запрос',
+  'RATE_LIMIT_ERROR':       'Превышен лимит запросов',
+  'API_ERROR':              'Ошибка Square API',
+  'REFUND_ERROR':           'Ошибка возврата',
+  'EXTERNAL_VENDOR_ERROR':  'Ошибка внешнего провайдера',
+};
+
 // ── History ───────────────────────────────────────────────────────────────────────────
 let historyCursor = null;
 
@@ -1157,24 +1236,10 @@ async function fetchHistory(append) {
 
     const riskColor = { LOW: '#10b981', NORMAL: '#10b981', MODERATE: '#f59e0b', HIGH: '#ef4444' }[p.riskLevel] || '#9ca3af';
 
-    const declineLabels = {
-      'CARD_DECLINED':                       'Отказ банка (общий)',
-      'CARD_DECLINED_VERIFICATION_REQUIRED': 'Требуется верификация (3DS)',
-      'CVV_FAILURE':                         'Неверный CVV',
-      'ADDRESS_VERIFICATION_FAILURE':        'Неверный ZIP / адрес',
-      'EXPIRATION_FAILURE':                  'Карта просрочена',
-      'CARD_NOT_SUPPORTED':                  'Тип карты не поддерживается',
-      'INSUFFICIENT_FUNDS':                  'Недостаточно средств',
-      'TRANSACTION_LIMIT':                   'Превышен лимит транзакции',
-      'CARD_VELOCITY_EXCEEDED':              'Слишком много попыток',
-      'INVALID_ACCOUNT':                     'Счёт не существует',
-      'VOICE_FAILURE':                       'Требуется голосовая авторизация',
-      'PAN_FAILURE':                         'Неверный номер карты',
-      'BAD_EXPIRATION':                      'Неверная дата истечения',
-      'CHIP_INSERTION_REQUIRED':             'Требуется чип',
-      'ALLOWLIST_FAILURE':                   'Карта в стоп-листе',
-      'BLOCKED_BY_SQUARE':                   'Заблокировано Square',
-    };
+    const cvvOk = p.cvvStatus === 'CVV_ACCEPTED';
+    const avsOk = p.avsStatus === 'AVS_ACCEPTED';
+    const cvvIcon = p.cvvStatus ? (cvvOk ? '✓' : '✗') : '—';
+    const avsIcon = p.avsStatus ? (avsOk ? '✓' : '✗') : '—';
 
     return `
     <div class="tx-item ${itemClass}">
@@ -1183,7 +1248,22 @@ async function fetchHistory(append) {
         <span style="font-size:11px;font-weight:700;color:${statusColor}">${p.status}</span>
       </div>
       ${p.note ? `<div class="tx-note" style="margin-top:3px">${p.note}</div>` : ''}
-      ${p.declineCode ? `<div class="tx-alert" style="margin-top:6px">❌ <strong>${declineLabels[p.declineCode] || p.declineCode}</strong>${p.declineDetail ? ' — ' + p.declineDetail : ''}</div>` : ''}
+      ${p.declineCode ? `
+        <div class="tx-alert" style="margin-top:6px">
+          ❌ <strong>${declineLabels[p.declineCode] || p.declineCode}</strong>${p.declineCategory ? ` <span style="opacity:0.7;font-size:11px">(${categoryLabels[p.declineCategory] || p.declineCategory})</span>` : ''}
+          ${p.declineDetail ? `<div style="margin-top:2px;font-size:11px;opacity:0.7">${p.declineDetail}</div>` : ''}
+          ${declineHints[p.declineCode] ? `<div style="margin-top:4px;font-size:11px;color:#92400e">💡 ${declineHints[p.declineCode]}</div>` : ''}
+        </div>` : ''}
+      ${isFail && (p.cvvStatus || p.avsStatus || p.card?.brand) ? `
+        <div style="margin-top:4px;font-size:11px;color:#6b7280;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          🔍
+          ${p.cvvStatus ? `<span style="color:${cvvOk ? '#10b981' : '#ef4444'}">CVV: ${cvvIcon}</span>` : ''}
+          ${p.avsStatus ? `<span style="color:${avsOk ? '#10b981' : '#ef4444'}">AVS: ${avsIcon}</span>` : ''}
+          ${p.card?.brand ? `<span>${p.card.brand}${p.card.cardType ? ' ' + p.card.cardType : ''}</span>` : ''}
+          ${p.card?.prepaidType && p.card.prepaidType !== 'NOT_PREPAID' ? `<span style="color:#f59e0b">${p.card.prepaidType}</span>` : ''}
+          ${p.card?.bin ? `<span>BIN ${p.card.bin}</span>` : ''}
+          ${p.card?.last4 ? `<span>****${p.card.last4}</span>` : ''}
+        </div>` : ''}
       <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}</div>
 
       <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
@@ -1639,7 +1719,17 @@ async function chargeCard() {
       // Clear form
       ['m-amount','m-note','m-name','m-email','m-zip'].forEach(id => document.getElementById(id).value = '');
     } else {
-      showResult(result, 'error', '❌ ' + (res.errors?.map(e => e.detail).join('<br>') || 'Payment failed'));
+      const err = res.errors?.[0];
+      const code = err?.code;
+      const label = (code && declineLabels[code]) || '';
+      const hint = (code && declineHints[code]) || '';
+      const catLabel = err?.category ? (categoryLabels[err.category] || err.category) : '';
+      let msg = label ? `<strong>${label}</strong>` : '';
+      if (catLabel) msg += ` <span style="opacity:0.7;font-size:12px">(${catLabel})</span>`;
+      if (err?.detail && err.detail !== label) msg += `<br><span style="font-size:12px;opacity:0.7">${err.detail}</span>`;
+      if (hint) msg += `<br><span style="font-size:12px;color:#92400e">💡 ${hint}</span>`;
+      if (!msg) msg = res.errors?.map(e => e.detail).join('<br>') || 'Payment failed';
+      showResult(result, 'error', '❌ ' + msg);
     }
   } catch (e) {
     showResult(result, 'error', '❌ ' + e.message);
