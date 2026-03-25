@@ -1166,6 +1166,18 @@ const categoryLabels = {
   'EXTERNAL_VENDOR_ERROR':  'Ошибка внешнего провайдера',
 };
 
+const riskLabels = {
+  'PENDING':  'Оценивается...',
+  'NORMAL':   'Нормальный',
+  'MODERATE': 'Повышенный',
+  'HIGH':     'Высокий',
+};
+
+const riskHints = {
+  'MODERATE': 'Square обнаружил повышенные сигналы риска. Рекомендуем проверить личность покупателя и адрес доставки перед выполнением заказа.',
+  'HIGH':     'Square обнаружил высокий риск мошенничества. Рекомендуем отменить заказ и оформить возврат, если невозможно проверить личность покупателя.',
+};
+
 // ── History ───────────────────────────────────────────────────────────────────────────
 let historyCursor = null;
 
@@ -1264,6 +1276,20 @@ async function fetchHistory(append) {
           ${p.card?.bin ? `<span>BIN ${p.card.bin}</span>` : ''}
           ${p.card?.last4 ? `<span>****${p.card.last4}</span>` : ''}
         </div>` : ''}
+      ${(p.riskLevel === 'MODERATE' || p.riskLevel === 'HIGH') ? `
+        <div style="margin-top:6px;padding:6px 10px;border-radius:6px;font-size:11px;border:1px solid ${p.riskLevel === 'HIGH' ? '#fca5a5' : '#fde68a'};background:${p.riskLevel === 'HIGH' ? '#fef2f2' : '#fffbeb'}">
+          <div style="font-weight:700;color:${riskColor}">
+            ${p.riskLevel === 'HIGH' ? '🔴' : '🟡'} Risk: ${riskLabels[p.riskLevel] || p.riskLevel}
+          </div>
+          ${riskHints[p.riskLevel] ? `<div style="margin-top:3px;color:${p.riskLevel === 'HIGH' ? '#991b1b' : '#92400e'}">${riskHints[p.riskLevel]}</div>` : ''}
+          <div style="margin-top:4px;color:#6b7280;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            ${p.cvvStatus ? `<span style="color:${cvvOk ? '#10b981' : '#ef4444'}">CVV: ${cvvIcon}</span>` : ''}
+            ${p.avsStatus ? `<span style="color:${avsOk ? '#10b981' : '#ef4444'}">AVS: ${avsIcon}</span>` : ''}
+            ${p.card?.prepaidType && p.card.prepaidType !== 'NOT_PREPAID' ? `<span style="color:#f59e0b;font-weight:600">⚠ PREPAID</span>` : ''}
+            ${p.entryMethod ? `<span>Ввод: ${p.entryMethod}</span>` : ''}
+            ${(p.billingName && p.shippingName && p.billingName !== p.shippingName) ? `<span style="color:#ef4444;font-weight:600">⚠ Billing ≠ Shipping</span>` : ''}
+          </div>
+        </div>` : ''}
       <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}</div>
 
       <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
@@ -1308,8 +1334,9 @@ async function fetchHistory(append) {
         <div class="tx-detail full"><label>Payment ID</label><span>${p.id}</span></div>
         <div class="tx-detail"><label>Order ID</label><span style="font-size:10px">${p.orderId || '—'}</span></div>
         <div class="tx-detail"><label>Receipt #</label><span>${p.receiptNumber || '—'}</span></div>
-        <div class="tx-detail"><label>Risk Level</label><span style="color:${riskColor};font-weight:700">${p.riskLevel || '—'}</span></div>
+        <div class="tx-detail"><label>Risk Level</label><span style="color:${riskColor};font-weight:700">${p.riskLevel ? (riskLabels[p.riskLevel] || p.riskLevel) + ' (' + p.riskLevel + ')' : '—'}</span></div>
         <div class="tx-detail"><label>Risk Created</label><span>${p.riskCreatedAt ? new Date(p.riskCreatedAt).toLocaleString('ru-RU') : '—'}</span></div>
+        ${riskHints[p.riskLevel] ? `<div class="tx-detail full"><label>Risk Hint</label><span style="color:${p.riskLevel === 'HIGH' ? '#991b1b' : '#92400e'}">${riskHints[p.riskLevel]}</span></div>` : ''}
         <div class="tx-detail"><label>App / Source</label><span>${p.appProduct || '—'}</span></div>
         <div class="tx-detail"><label>Updated At</label><span>${p.updatedAt ? new Date(p.updatedAt).toLocaleString('ru-RU') : '—'}</span></div>
         ${p.delayUntil ? `<div class="tx-detail"><label>Delayed Until</label><span>${new Date(p.delayUntil).toLocaleString('ru-RU')} (${p.delayAction || ''})</span></div>` : ''}

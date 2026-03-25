@@ -140,3 +140,43 @@ describe('dictionary consistency', () => {
     expect(labelKeys).toEqual(hintKeys);
   });
 });
+
+// ── Risk dictionaries ──────────────────────────────────────────────────────
+
+const riskLabels = extractDict('riskLabels');
+const riskHints = extractDict('riskHints');
+
+const SQUARE_RISK_LEVELS = ['PENDING', 'NORMAL', 'MODERATE', 'HIGH'];
+
+describe('riskLabels', () => {
+  test('has a label for every Square risk level', () => {
+    const missing = SQUARE_RISK_LEVELS.filter(level => !riskLabels[level]);
+    expect(missing).toEqual([]);
+  });
+
+  test('all labels are non-empty', () => {
+    for (const [level, label] of Object.entries(riskLabels)) {
+      expect(label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('riskHints', () => {
+  test('has hints for MODERATE and HIGH (actionable levels)', () => {
+    expect(riskHints['MODERATE']).toBeDefined();
+    expect(riskHints['HIGH']).toBeDefined();
+    expect(riskHints['MODERATE'].length).toBeGreaterThan(10);
+    expect(riskHints['HIGH'].length).toBeGreaterThan(10);
+  });
+
+  test('does NOT have hints for NORMAL or PENDING (no action needed)', () => {
+    expect(riskHints['NORMAL']).toBeUndefined();
+    expect(riskHints['PENDING']).toBeUndefined();
+  });
+
+  test('only contains valid risk levels', () => {
+    const hintKeys = Object.keys(riskHints);
+    const invalid = hintKeys.filter(k => !SQUARE_RISK_LEVELS.includes(k));
+    expect(invalid).toEqual([]);
+  });
+});
