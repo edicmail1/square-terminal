@@ -1826,7 +1826,100 @@ function showResult(el, type, msg) {
 }
 
 // ── Payouts ──────────────────────────────────────────────────────────────────────────
-let payoutsCursors = {}; // per-profile cursors
+let payoutsCursors = {};
+let bankAccountsCache = {}; // profileId → { destId → { bankName, last4, status, creditable, debitable } }
+let payoutEntriesCache = {}; // payoutId → { entries, summary }
+
+async function loadBankAccounts(profiles) {
+  bankAccountsCache = {};
+  await Promise.all(profiles.map(async p => {
+    try {
+      const r = await fetch(`/api/profiles/${p.id}/bank-accounts`, { credentials: 'include' });
+      const data = await r.json();
+      const map = {};
+      for (const a of (data.accounts || [])) {
+        map[a.id] = { bankName: a.bankName || 'Unknown', last4: a.accountNumberSuffix || '****', status: a.status, creditable: a.creditable, debitable: a.debitable, holderName: a.holderName };
+      }
+      bankAccountsCache[p.id] = map;
+    } catch (_) { bankAccountsCache[p.id] = {}; }
+  }));
+}
+
+function getBankInfo(profileId, destinationId, destinationType) {
+  if (!destinationId) return destinationType === 'BANK_ACCOUNT' ? '🏦 Bank' : destinationType === 'CARD' ? '💳 Card' : destinationType || '—';
+  const bank = bankAccountsCache[profileId]?.[destinationId];
+  if (!bank) return destinationType === 'BANK_ACCOUNT' ? '🏦 Bank' : destinationType === 'CARD' ? '💳 Card' : '—';
+  const icon = destinationType === 'CARD' ? '💳' : '🏦';
+  const statusBadge = bank.status === 'VERIFICATION_IN_PROGRESS' ? ' ⏳' : bank.status === 'DISABLED' ? ' ❌' : '';
+  return `${icon} ${bank.bankName} ****${bank.last4}${statusBadge}`;
+}
+
+async function togglePayoutEntries(profileId, payoutId, el) {
+  const container = el.nextElementSibling;
+  if (container.style.display === 'block') {
+    container.style.display = 'none';
+    el.textContent = '▶ Show breakdown';
+    return;
+  }
+  // Check cache
+  if (payoutEntriesCache[payoutId]) {
+    container.innerHTML = renderEntries(payoutEntriesCache[payoutId]);
+    container.style.display = 'block';
+    el.textContent = '▼ Hide breakdown';
+    return;
+  }
+  container.innerHTML = '<div style="color:#6b7280;font-size:12px;padding:8px 0;">Loading...</div>';
+  container.style.display = 'block';
+  el.textContent = '▼ Hide breakdown';
+  try {
+    const r = await fetch(`/api/profiles/${profileId}/payouts/${payoutId}/entries`, { credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { container.innerHTML = `<div style="color:#ef4444;font-size:12px;padding:8px 0;">${data.error}</div>`; return; }
+    payoutEntriesCache[payoutId] = data;
+    container.innerHTML = renderEntries(data);
+  } catch (e) {
+    container.innerHTML = `<div style="color:#ef4444;font-size:12px;padding:8px 0;">Error: ${e.message}</div>`;
+  }
+}
+
+function renderEntries({ entries, summary }) {
+  if (!entries || !entries.length) return '<div style="color:#6b7280;font-size:12px;padding:8px 0;">No entries</div>';
+  const typeLabels = { CHARGE: '💳 Charges', REFUND: '🔄 Refunds', FEE: '💰 Fees', ADJUSTMENT: '📎 Adjustments', BALANCE_ADJUSTMENT: '📎 Balance Adj.', SQUARE_CAPITAL_PAYMENT: '🏛 Capital Payment', SQUARE_CAPITAL_REVERSED_PAYMENT: '🏛 Capital Reversed' };
+  const typeColors = { CHARGE: '#059669', REFUND: '#dc2626', FEE: '#9333ea', ADJUSTMENT: '#2563eb', BALANCE_ADJUSTMENT: '#2563eb' };
+
+  // Summary bar
+  let summaryHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;font-size:12px;">';
+  if (summary.chargeCount) summaryHtml += `<span style="color:#059669;font-weight:600;">💳 ${summary.chargeCount} charges: +$${summary.charges.toFixed(2)}</span>`;
+  if (summary.refundCount) summaryHtml += `<span style="color:#dc2626;font-weight:600;">🔄 ${summary.refundCount} refunds: $${summary.refunds.toFixed(2)}</span>`;
+  if (summary.feeCount) summaryHtml += `<span style="color:#9333ea;font-weight:600;">💰 ${summary.feeCount} fees: $${summary.fees.toFixed(2)}</span>`;
+  if (summary.adjustmentCount) summaryHtml += `<span style="color:#2563eb;font-weight:600;">📎 ${summary.adjustmentCount} adj: $${summary.adjustments.toFixed(2)}</span>`;
+  if (summary.otherCount) summaryHtml += `<span style="color:#6b7280;font-weight:600;">Other: $${summary.other.toFixed(2)}</span>`;
+  summaryHtml += '</div>';
+
+  // Entry rows (group by type)
+  const grouped = {};
+  for (const e of entries) { (grouped[e.type] = grouped[e.type] || []).push(e); }
+
+  let rowsHtml = '';
+  for (const [type, items] of Object.entries(grouped)) {
+    const label = typeLabels[type] || type;
+    const color = typeColors[type] || '#6b7280';
+    rowsHtml += `<div style="font-size:11px;font-weight:700;color:${color};margin-top:6px;margin-bottom:2px;">${label} (${items.length})</div>`;
+    for (const e of items) {
+      const amt = parseFloat(e.amount);
+      const fee = parseFloat(e.feeAmount);
+      const amtStr = `${amt >= 0 ? '+' : ''}$${Math.abs(amt).toFixed(2)}`;
+      const feeStr = fee !== 0 ? ` <span style="color:#9333ea;font-size:10px;">(fee: $${Math.abs(fee).toFixed(2)})</span>` : '';
+      const ref = e.paymentId ? `<span style="color:#9ca3af;font-size:10px;"> · ${e.paymentId.slice(0, 12)}…</span>` : '';
+      const feeType = e.feeType ? `<span style="color:#9ca3af;font-size:10px;"> · ${e.feeType.replace(/_/g, ' ')}</span>` : '';
+      rowsHtml += `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0 2px 12px;font-size:12px;">
+        <span style="color:#374151;">${amtStr}${feeStr}${ref}${feeType}</span>
+      </div>`;
+    }
+  }
+
+  return `<div style="background:#f3f4f6;border-radius:8px;padding:10px 12px;margin-top:6px;">${summaryHtml}${rowsHtml}</div>`;
+}
 
 async function loadPayouts(append) {
   const list = document.getElementById('payouts-list');
@@ -1834,23 +1927,28 @@ async function loadPayouts(append) {
   if (!append) {
     list.innerHTML = '<p style="color:#6b7280;font-size:14px;">Loading...</p>';
     payoutsCursors = {};
+    payoutEntriesCache = {};
   }
   try {
     const profilesRes = await fetch('/api/profiles', { credentials: 'include' });
     const profilesData = await profilesRes.json();
     const profiles = profilesData.profiles || [];
 
-    const results = await Promise.all(profiles.map(async p => {
-      try {
-        const cursor = payoutsCursors[p.id] || '';
-        const r = await fetch(`/api/profiles/${p.id}/payouts?limit=10${cursor ? '&cursor=' + cursor : ''}`, { credentials: 'include' });
-        const data = await r.json();
-        if (data.cursor) payoutsCursors[p.id] = data.cursor;
-        return { profile: p, payouts: data.payouts || [], hasMore: !!data.cursor, error: data.error || null };
-      } catch (e) {
-        return { profile: p, payouts: [], hasMore: false, error: e.message };
-      }
-    }));
+    // Load bank accounts in parallel with payouts
+    const [_, results] = await Promise.all([
+      append ? Promise.resolve() : loadBankAccounts(profiles),
+      Promise.all(profiles.map(async p => {
+        try {
+          const cursor = payoutsCursors[p.id] || '';
+          const r = await fetch(`/api/profiles/${p.id}/payouts?limit=10${cursor ? '&cursor=' + cursor : ''}`, { credentials: 'include' });
+          const data = await r.json();
+          if (data.cursor) payoutsCursors[p.id] = data.cursor;
+          return { profile: p, payouts: data.payouts || [], hasMore: !!data.cursor, error: data.error || null };
+        } catch (e) {
+          return { profile: p, payouts: [], hasMore: false, error: e.message };
+        }
+      }))
+    ]);
 
     const anyPayouts = results.some(r => r.payouts.length > 0);
     const anyMore = results.some(r => r.hasMore);
@@ -1865,6 +1963,19 @@ async function loadPayouts(append) {
       if (error) return `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px;margin-bottom:12px;"><span style="font-weight:600;">${profile.name}</span>: <span style="color:#ef4444;">${error}</span></div>`;
       if (!payouts.length) return '';
 
+      // Bank account summary for this profile
+      const banks = bankAccountsCache[profile.id] || {};
+      const bankList = Object.values(banks);
+      let bankHeader = '';
+      if (bankList.length) {
+        const bankItems = bankList.map(b => {
+          const st = b.status === 'VERIFIED' ? '✅' : b.status === 'DISABLED' ? '❌' : '⏳';
+          const cr = b.creditable ? 'creditable' : 'not creditable';
+          return `${b.bankName} ****${b.last4} ${st} (${cr}${b.holderName ? ' · ' + b.holderName : ''})`;
+        }).join(' | ');
+        bankHeader = `<div style="font-size:11px;color:#6b7280;margin-bottom:10px;padding:6px 10px;background:#eff6ff;border-radius:6px;">🏦 ${bankItems}</div>`;
+      }
+
       const rows = payouts.map(p => {
         const amt = parseFloat(p.amount);
         const isPositive = amt >= 0;
@@ -1873,22 +1984,29 @@ async function loadPayouts(append) {
         const statusColors = { SENT: '#2563eb', PAID: '#059669', FAILED: '#dc2626' };
         const statusColor = statusColors[p.status] || '#6b7280';
         const date = p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
-        const arrival = p.arrivalDate || '—';
-        const dest = p.destinationType === 'BANK_ACCOUNT' ? '🏦 Bank' : p.destinationType === 'CARD' ? '💳 Card' : p.destinationType || '—';
-        return `<div style="display:grid;grid-template-columns:1fr 80px 70px 70px;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
-          <div>
-            <div style="color:#111827;font-weight:500;">${date}</div>
-            <div style="color:#9ca3af;font-size:11px;">${dest}${p.endToEndId ? ' · ' + p.endToEndId : ''}</div>
+        const dest = getBankInfo(profile.id, p.destinationId, p.destinationType);
+        const arrival = p.arrivalDate ? `<span style="color:#6b7280;font-size:10px;">arr: ${p.arrivalDate}</span>` : '';
+        return `<div style="padding:10px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
+          <div style="display:grid;grid-template-columns:1fr 90px 70px 70px;gap:8px;align-items:center;">
+            <div>
+              <div style="color:#111827;font-weight:500;">${date} ${arrival}</div>
+              <div style="color:#9ca3af;font-size:11px;">${dest}${p.endToEndId ? ' · ' + p.endToEndId : ''}</div>
+            </div>
+            <div style="text-align:right;font-weight:700;color:${color};">${sign}$${Math.abs(amt).toFixed(2)}</div>
+            <div style="text-align:center;"><span style="background:${statusColor}15;color:${statusColor};font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;">${p.status}</span></div>
+            <div style="text-align:right;color:#9ca3af;font-size:11px;">${p.currency}</div>
           </div>
-          <div style="text-align:right;font-weight:700;color:${color};">${sign}$${Math.abs(amt).toFixed(2)}</div>
-          <div style="text-align:center;"><span style="background:${statusColor}15;color:${statusColor};font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;">${p.status}</span></div>
-          <div style="text-align:right;color:#9ca3af;font-size:11px;">${p.currency}</div>
+          <div style="margin-top:4px;">
+            <span onclick="togglePayoutEntries('${profile.id}','${p.id}',this)" style="color:#006AFF;font-size:11px;cursor:pointer;font-weight:600;">▶ Show breakdown</span>
+            <div style="display:none;"></div>
+          </div>
         </div>`;
       }).join('');
 
       return `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px;">
-        <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;">${profile.name}</div>
-        <div style="display:grid;grid-template-columns:1fr 80px 70px 70px;gap:8px;padding:0 0 8px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;font-weight:600;">
+        <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:8px;">${profile.name}</div>
+        ${bankHeader}
+        <div style="display:grid;grid-template-columns:1fr 90px 70px 70px;gap:8px;padding:0 0 8px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;font-weight:600;">
           <div>Date</div><div style="text-align:right;">Amount</div><div style="text-align:center;">Status</div><div style="text-align:right;">Currency</div>
         </div>
         ${rows}

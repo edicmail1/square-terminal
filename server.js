@@ -680,9 +680,42 @@ app.get('/api/profiles/:id/payouts', requireAuth, async (req, res) => {
     arrivalDate: p.arrival_date || null,
     type: p.type,
     destinationType: p.destination?.type || null,
+    destinationId: p.destination?.id || null,
     endToEndId: p.end_to_end_id || null,
   }));
   res.json({ payouts, cursor: r.body.cursor || null });
+});
+
+// GET payout entries (breakdown of a single payout)
+app.get('/api/profiles/:id/payouts/:payoutId/entries', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  const payoutId = req.params.payoutId;
+  const r = await safeSquareCall(profile, (token) => squareGet(token, `/v2/payouts/${payoutId}/payout-entries?limit=100`));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  const entries = (r.body.payout_entries || []).map(e => ({
+    id: e.id,
+    type: e.type,
+    amount: (Number(e.amount_money?.amount || 0) / 100).toFixed(2),
+    currency: e.amount_money?.currency || 'USD',
+    feeAmount: (Number(e.fee_amount_money?.amount || 0) / 100).toFixed(2),
+    feeCurrency: e.fee_amount_money?.currency || 'USD',
+    paymentId: e.type_charge_details?.payment_id || e.type_refund_details?.payment_id || null,
+    refundId: e.type_refund_details?.refund_id || null,
+    feeType: e.type_fee_details?.type || null,
+  }));
+  // Summarize by type
+  const summary = { charges: 0, chargeCount: 0, refunds: 0, refundCount: 0, fees: 0, feeCount: 0, adjustments: 0, adjustmentCount: 0, other: 0, otherCount: 0 };
+  for (const e of entries) {
+    const amt = parseFloat(e.amount);
+    if (e.type === 'CHARGE') { summary.charges += amt; summary.chargeCount++; }
+    else if (e.type === 'REFUND') { summary.refunds += amt; summary.refundCount++; }
+    else if (e.type === 'FEE' || e.type === 'SQUARE_CAPITAL_PAYMENT' || e.type === 'SQUARE_CAPITAL_REVERSED_PAYMENT') { summary.fees += amt; summary.feeCount++; }
+    else if (e.type === 'ADJUSTMENT' || e.type === 'BALANCE_ADJUSTMENT') { summary.adjustments += amt; summary.adjustmentCount++; }
+    else { summary.other += amt; summary.otherCount++; }
+  }
+  res.json({ entries, summary });
 });
 
 // GET bank accounts
