@@ -1356,6 +1356,27 @@ async function healthCheck(id) {
       html += '</div></div>';
     }
 
+    // Live Tests
+    if (d.liveTests) {
+      const lt = d.liveTests;
+      html += `<div style="margin-top:8px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;"><strong>🧪 Live Tests</strong>`;
+      const tests = [
+        { key: 'createOrder', label: 'Create Order' },
+        { key: 'createInvoice', label: 'Create Invoice' },
+        { key: 'chargePayment', label: 'Charge Payment' },
+      ];
+      for (const t of tests) {
+        const v = lt[t.key];
+        if (!v) continue;
+        const icon = v.status === 'ok' ? '✅' : v.status === 'blocked' ? '⛔' : v.status === 'skip' ? '⏭' : '❌';
+        const color = v.status === 'ok' ? '#059669' : v.status === 'blocked' ? '#dc2626' : '#f59e0b';
+        html += `<div style="margin-top:4px;font-size:12px;">
+          ${icon} <strong>${t.label}:</strong> <span style="color:${color}">${v.status === 'ok' ? 'OK' : v.detail || v.status}</span>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
     result.innerHTML = html || 'No data';
   } catch (e) {
     result.style.color = '#ef4444';

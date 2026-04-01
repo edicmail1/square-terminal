@@ -902,6 +902,79 @@ app.get('/api/profiles/:id/health', requireAuth, async (req, res) => {
   }));
   results.permissions = permTests;
 
+  // 6. Live tests — actually try create operations to see what's blocked
+  const liveTests = {};
+
+  // Test: Create Order
+  try {
+    const r = await squarePost(accessToken, '/v2/orders', {
+      order: { location_id: profile.location_id, line_items: [{ name: 'Health Check Test', quantity: '1', base_price_money: { amount: 1, currency: 'USD' } }] },
+      idempotency_key: 'health-test-order-' + Date.now(),
+    });
+    if (r.status === 200) {
+      liveTests.createOrder = { status: 'ok', orderId: r.body.order.id };
+    } else {
+      liveTests.createOrder = { status: 'error', detail: r.body?.errors?.[0]?.detail || `HTTP ${r.status}` };
+    }
+  } catch (e) { liveTests.createOrder = { status: 'error', detail: e.message }; }
+
+  // Test: Create Invoice (requires order)
+  if (liveTests.createOrder?.orderId) {
+    try {
+      const r = await squarePost(accessToken, '/v2/invoices', {
+        invoice: {
+          location_id: profile.location_id,
+          order_id: liveTests.createOrder.orderId,
+          delivery_method: 'SHARE_MANUALLY',
+          payment_requests: [{ request_type: 'BALANCE', due_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) }],
+          accepted_payment_methods: { card: true, square_gift_card: false, bank_account: false, buy_now_pay_later: false, cash_app_pay: false },
+        },
+        idempotency_key: 'health-test-inv-' + Date.now(),
+      });
+      if (r.status === 200) {
+        liveTests.createInvoice = { status: 'ok', invoiceId: r.body.invoice.id, version: r.body.invoice.version };
+        // Clean up — delete the draft invoice
+        try { await squareRequest('DELETE', accessToken, `/v2/invoices/${r.body.invoice.id}?version=${r.body.invoice.version}`, null); } catch (_) {}
+      } else {
+        liveTests.createInvoice = { status: 'error', detail: r.body?.errors?.[0]?.detail || `HTTP ${r.status}` };
+      }
+    } catch (e) { liveTests.createInvoice = { status: 'error', detail: e.message }; }
+  } else {
+    liveTests.createInvoice = { status: 'skip', detail: 'Order creation failed' };
+  }
+
+  // Test: Charge Payment (with fake nonce — will fail with specific error)
+  try {
+    const r = await squarePost(accessToken, '/v2/payments', {
+      source_id: 'cnon:card-nonce-ok',
+      amount_money: { amount: 1, currency: 'USD' },
+      location_id: profile.location_id,
+      idempotency_key: 'health-test-pay-' + Date.now(),
+    });
+    if (r.status === 200) {
+      liveTests.chargePayment = { status: 'ok', detail: 'Payment would succeed' };
+      // Refund immediately if somehow it went through
+      if (r.body.payment?.id) {
+        try { await squarePost(accessToken, '/v2/refunds', { payment_id: r.body.payment.id, amount_money: { amount: 1, currency: 'USD' }, idempotency_key: 'health-refund-' + Date.now() }); } catch (_) {}
+      }
+    } else {
+      const detail = r.body?.errors?.[0]?.detail || `HTTP ${r.status}`;
+      const code = r.body?.errors?.[0]?.code || '';
+      // "not enabled to take payments" = account blocked
+      // "INVALID_CARD_DATA" or "VERIFY_CVV/AVS" = permission ok, card just fake
+      const isPermOk = code === 'INVALID_CARD_DATA' || code === 'VERIFY_CVV_FAILURE' || code === 'VERIFY_AVS_FAILURE' || code === 'BAD_REQUEST';
+      if (detail.includes('not been enabled')) {
+        liveTests.chargePayment = { status: 'blocked', detail };
+      } else if (r.status === 400 || isPermOk) {
+        liveTests.chargePayment = { status: 'ok', detail: 'Can process payments (test nonce rejected as expected)' };
+      } else {
+        liveTests.chargePayment = { status: 'error', detail };
+      }
+    }
+  } catch (e) { liveTests.chargePayment = { status: 'error', detail: e.message }; }
+
+  results.liveTests = liveTests;
+
   res.json(results);
 });
 
