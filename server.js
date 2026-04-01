@@ -697,18 +697,21 @@ app.get('/api/profiles/:id/payouts/:payoutId/entries', requireAuth, async (req, 
   const entries = (r.body.payout_entries || []).map(e => ({
     id: e.id,
     type: e.type,
-    amount: (Number(e.amount_money?.amount || 0) / 100).toFixed(2),
-    currency: e.amount_money?.currency || 'USD',
+    grossAmount: (Number(e.gross_amount_money?.amount || 0) / 100).toFixed(2),
+    netAmount: (Number(e.net_amount_money?.amount || 0) / 100).toFixed(2),
     feeAmount: (Number(e.fee_amount_money?.amount || 0) / 100).toFixed(2),
-    feeCurrency: e.fee_amount_money?.currency || 'USD',
+    currency: e.gross_amount_money?.currency || e.net_amount_money?.currency || 'USD',
+    effectiveAt: e.effective_at || null,
     paymentId: e.type_charge_details?.payment_id || e.type_refund_details?.payment_id || null,
     refundId: e.type_refund_details?.refund_id || null,
     feeType: e.type_fee_details?.type || null,
   }));
   // Summarize by type
-  const summary = { charges: 0, chargeCount: 0, refunds: 0, refundCount: 0, fees: 0, feeCount: 0, adjustments: 0, adjustmentCount: 0, other: 0, otherCount: 0 };
+  const summary = { charges: 0, chargeCount: 0, refunds: 0, refundCount: 0, fees: 0, feeCount: 0, adjustments: 0, adjustmentCount: 0, other: 0, otherCount: 0, totalFees: 0, totalNet: 0 };
   for (const e of entries) {
-    const amt = parseFloat(e.amount);
+    const amt = parseFloat(e.grossAmount);
+    summary.totalFees += parseFloat(e.feeAmount);
+    summary.totalNet += parseFloat(e.netAmount);
     if (e.type === 'CHARGE') { summary.charges += amt; summary.chargeCount++; }
     else if (e.type === 'REFUND') { summary.refunds += amt; summary.refundCount++; }
     else if (e.type === 'FEE' || e.type === 'SQUARE_CAPITAL_PAYMENT' || e.type === 'SQUARE_CAPITAL_REVERSED_PAYMENT') { summary.fees += amt; summary.feeCount++; }

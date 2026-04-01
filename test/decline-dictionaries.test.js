@@ -184,15 +184,16 @@ describe('riskHints', () => {
 // ── Payout entries mapping (server-side logic) ──────────────────────────────
 
 describe('payout entries server mapping', () => {
-  // Simulate the server-side mapping logic from server.js
+  // Simulate the server-side mapping logic from server.js (uses gross_amount_money, net_amount_money)
   function mapEntry(e) {
     return {
       id: e.id,
       type: e.type,
-      amount: (Number(e.amount_money?.amount || 0) / 100).toFixed(2),
-      currency: e.amount_money?.currency || 'USD',
+      grossAmount: (Number(e.gross_amount_money?.amount || 0) / 100).toFixed(2),
+      netAmount: (Number(e.net_amount_money?.amount || 0) / 100).toFixed(2),
       feeAmount: (Number(e.fee_amount_money?.amount || 0) / 100).toFixed(2),
-      feeCurrency: e.fee_amount_money?.currency || 'USD',
+      currency: e.gross_amount_money?.currency || e.net_amount_money?.currency || 'USD',
+      effectiveAt: e.effective_at || null,
       paymentId: e.type_charge_details?.payment_id || e.type_refund_details?.payment_id || null,
       refundId: e.type_refund_details?.refund_id || null,
       feeType: e.type_fee_details?.type || null,
@@ -200,9 +201,11 @@ describe('payout entries server mapping', () => {
   }
 
   function summarize(entries) {
-    const summary = { charges: 0, chargeCount: 0, refunds: 0, refundCount: 0, fees: 0, feeCount: 0, adjustments: 0, adjustmentCount: 0, other: 0, otherCount: 0 };
+    const summary = { charges: 0, chargeCount: 0, refunds: 0, refundCount: 0, fees: 0, feeCount: 0, adjustments: 0, adjustmentCount: 0, other: 0, otherCount: 0, totalFees: 0, totalNet: 0 };
     for (const e of entries) {
-      const amt = parseFloat(e.amount);
+      const amt = parseFloat(e.grossAmount);
+      summary.totalFees += parseFloat(e.feeAmount);
+      summary.totalNet += parseFloat(e.netAmount);
       if (e.type === 'CHARGE') { summary.charges += amt; summary.chargeCount++; }
       else if (e.type === 'REFUND') { summary.refunds += amt; summary.refundCount++; }
       else if (e.type === 'FEE') { summary.fees += amt; summary.feeCount++; }
@@ -212,46 +215,50 @@ describe('payout entries server mapping', () => {
     return summary;
   }
 
-  test('maps CHARGE entry with payment_id and fee', () => {
-    const raw = { id: 'pe_1', type: 'CHARGE', amount_money: { amount: 5000, currency: 'USD' }, fee_amount_money: { amount: -145, currency: 'USD' }, type_charge_details: { payment_id: 'pay_abc' } };
+  test('maps CHARGE entry with gross/net/fee amounts', () => {
+    const raw = { id: 'pe_1', type: 'CHARGE', gross_amount_money: { amount: 5000, currency: 'USD' }, net_amount_money: { amount: 4855, currency: 'USD' }, fee_amount_money: { amount: -145, currency: 'USD' }, type_charge_details: { payment_id: 'pay_abc' } };
     const mapped = mapEntry(raw);
-    expect(mapped.amount).toBe('50.00');
+    expect(mapped.grossAmount).toBe('50.00');
+    expect(mapped.netAmount).toBe('48.55');
     expect(mapped.feeAmount).toBe('-1.45');
     expect(mapped.paymentId).toBe('pay_abc');
     expect(mapped.type).toBe('CHARGE');
   });
 
   test('maps REFUND entry with refund_id', () => {
-    const raw = { id: 'pe_2', type: 'REFUND', amount_money: { amount: -1500, currency: 'USD' }, fee_amount_money: { amount: 0, currency: 'USD' }, type_refund_details: { payment_id: 'pay_xyz', refund_id: 'ref_123' } };
+    const raw = { id: 'pe_2', type: 'REFUND', gross_amount_money: { amount: -1500, currency: 'USD' }, net_amount_money: { amount: -1500, currency: 'USD' }, fee_amount_money: { amount: 0, currency: 'USD' }, type_refund_details: { payment_id: 'pay_xyz', refund_id: 'ref_123' } };
     const mapped = mapEntry(raw);
-    expect(mapped.amount).toBe('-15.00');
+    expect(mapped.grossAmount).toBe('-15.00');
+    expect(mapped.netAmount).toBe('-15.00');
     expect(mapped.refundId).toBe('ref_123');
     expect(mapped.paymentId).toBe('pay_xyz');
   });
 
   test('maps FEE entry with fee_type', () => {
-    const raw = { id: 'pe_3', type: 'FEE', amount_money: { amount: -250, currency: 'USD' }, fee_amount_money: { amount: 0, currency: 'USD' }, type_fee_details: { type: 'PROCESSING_FEE' } };
+    const raw = { id: 'pe_3', type: 'FEE', gross_amount_money: { amount: -250, currency: 'USD' }, net_amount_money: { amount: -250, currency: 'USD' }, fee_amount_money: { amount: 0, currency: 'USD' }, type_fee_details: { type: 'PROCESSING_FEE' } };
     const mapped = mapEntry(raw);
     expect(mapped.feeType).toBe('PROCESSING_FEE');
-    expect(mapped.amount).toBe('-2.50');
+    expect(mapped.grossAmount).toBe('-2.50');
   });
 
   test('handles missing optional fields gracefully', () => {
-    const raw = { id: 'pe_4', type: 'ADJUSTMENT', amount_money: { amount: 100, currency: 'USD' } };
+    const raw = { id: 'pe_4', type: 'ADJUSTMENT' };
     const mapped = mapEntry(raw);
+    expect(mapped.grossAmount).toBe('0.00');
+    expect(mapped.netAmount).toBe('0.00');
     expect(mapped.feeAmount).toBe('0.00');
     expect(mapped.paymentId).toBeNull();
     expect(mapped.refundId).toBeNull();
     expect(mapped.feeType).toBeNull();
   });
 
-  test('summary aggregates correctly', () => {
+  test('summary aggregates gross amounts and tracks totalFees/totalNet', () => {
     const entries = [
-      { type: 'CHARGE', amount: '50.00' },
-      { type: 'CHARGE', amount: '30.00' },
-      { type: 'REFUND', amount: '-15.00' },
-      { type: 'FEE', amount: '-2.50' },
-      { type: 'ADJUSTMENT', amount: '1.00' },
+      { type: 'CHARGE', grossAmount: '50.00', netAmount: '48.55', feeAmount: '-1.45' },
+      { type: 'CHARGE', grossAmount: '30.00', netAmount: '29.13', feeAmount: '-0.87' },
+      { type: 'REFUND', grossAmount: '-15.00', netAmount: '-15.00', feeAmount: '0.00' },
+      { type: 'FEE', grossAmount: '-2.50', netAmount: '-2.50', feeAmount: '0.00' },
+      { type: 'ADJUSTMENT', grossAmount: '1.00', netAmount: '1.00', feeAmount: '0.00' },
     ];
     const s = summarize(entries);
     expect(s.chargeCount).toBe(2);
@@ -261,12 +268,15 @@ describe('payout entries server mapping', () => {
     expect(s.feeCount).toBe(1);
     expect(s.fees).toBeCloseTo(-2.50);
     expect(s.adjustmentCount).toBe(1);
+    expect(s.totalFees).toBeCloseTo(-2.32);
+    expect(s.totalNet).toBeCloseTo(61.18);
   });
 
   test('empty entries produce zero summary', () => {
     const s = summarize([]);
     expect(s.chargeCount).toBe(0);
     expect(s.charges).toBe(0);
-    expect(s.fees).toBe(0);
+    expect(s.totalFees).toBe(0);
+    expect(s.totalNet).toBe(0);
   });
 });
