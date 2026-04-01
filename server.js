@@ -775,6 +775,38 @@ app.get('/api/profiles/:id/merchant', requireAuth, async (req, res) => {
   res.json(r.body.merchant);
 });
 
+// Check IP (through proxy if configured, or direct)
+app.get('/api/profiles/:id/check-ip', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const proxyUrl = profile.proxy_url || '';
+  const agent = getProxyAgent(proxyUrl);
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const r = https.request({
+        hostname: 'api.ipify.org',
+        path: '/?format=json',
+        method: 'GET',
+        ...(agent ? { agent } : {}),
+        timeout: 10000,
+      }, response => {
+        let data = '';
+        response.on('data', c => data += c);
+        response.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch { resolve({ ip: data.trim() }); }
+        });
+      });
+      r.on('error', reject);
+      r.on('timeout', () => { r.destroy(); reject(new Error('Timeout')); });
+      r.end();
+    });
+    res.json({ ip: result.ip, proxy: !!proxyUrl, proxyUrl: proxyUrl ? proxyUrl.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@') : null });
+  } catch (e) {
+    res.json({ error: e.message, proxy: !!proxyUrl, proxyUrl: proxyUrl ? proxyUrl.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@') : null });
+  }
+});
+
 // GET transactions from DB
 app.get('/api/profiles/:id/transactions', requireAuth, (req, res) => {
   const txs = dbAll(

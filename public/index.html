@@ -974,8 +974,10 @@ function renderProfileList() {
       <div class="profile-card-actions">
         ${!p.active ? `<button class="btn btn-primary btn-sm" onclick="switchProfile('${p.id}')">Activate</button>` : ''}
         <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
+        <button class="btn btn-sm" onclick="checkProfileIp('${p.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe" id="btn-ip-${p.id}">🔍 Check IP</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>
       </div>
+      <div id="ip-result-${p.id}" style="display:none;margin-top:6px;padding:8px 12px;border-radius:8px;font-size:12px;"></div>
     </div>
   `).join('');
 
@@ -1177,6 +1179,37 @@ async function saveProfile() {
   } else {
     showResult(result, 'error', '❌ ' + (res.error || 'Save failed'));
   }
+}
+
+async function checkProfileIp(id) {
+  const btn = document.getElementById(`btn-ip-${id}`);
+  const result = document.getElementById(`ip-result-${id}`);
+  btn.textContent = '⏳ Checking...';
+  btn.disabled = true;
+  result.style.display = 'block';
+  result.style.background = '#f3f4f6';
+  result.style.color = '#6b7280';
+  result.innerHTML = 'Checking IP...';
+  try {
+    const r = await fetch(`/api/profiles/${id}/check-ip`, { credentials: 'include' });
+    const data = await r.json();
+    if (data.error) {
+      result.style.background = '#fef2f2';
+      result.style.color = '#dc2626';
+      result.innerHTML = `❌ Proxy failed: ${data.error}${data.proxyUrl ? `<br><span style="font-size:11px;color:#9ca3af;">${data.proxyUrl}</span>` : ''}`;
+    } else {
+      const isProxy = data.proxy;
+      result.style.background = isProxy ? '#ecfdf5' : '#eff6ff';
+      result.style.color = isProxy ? '#059669' : '#2563eb';
+      result.innerHTML = `${isProxy ? '🔒' : '🌐'} IP: <strong>${data.ip}</strong>${isProxy ? ' (через прокси)' : ' (прямое соединение)'}${data.proxyUrl ? `<br><span style="font-size:11px;color:#9ca3af;">${data.proxyUrl}</span>` : ''}`;
+    }
+  } catch (e) {
+    result.style.background = '#fef2f2';
+    result.style.color = '#dc2626';
+    result.innerHTML = `❌ Error: ${e.message}`;
+  }
+  btn.textContent = '🔍 Check IP';
+  btn.disabled = false;
 }
 
 async function deleteProfile(id) {
