@@ -807,6 +807,90 @@ app.get('/api/profiles/:id/check-ip', requireAuth, async (req, res) => {
   }
 });
 
+// Health check — gather account status from multiple APIs
+app.get('/api/profiles/:id/health', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  const results = {};
+
+  // 1. Merchant info
+  try {
+    const r = await squareGet(accessToken, '/v2/merchants/me');
+    if (r.status === 200) {
+      const m = r.body.merchant;
+      results.merchant = { status: m.status, country: m.country, currency: m.currency, businessName: m.business_name, createdAt: m.created_at, mainLocationId: m.main_location_id };
+    } else {
+      results.merchant = { error: r.body?.errors?.[0]?.detail || `HTTP ${r.status}` };
+    }
+  } catch (e) { results.merchant = { error: e.message }; }
+
+  // 2. Location details + capabilities
+  try {
+    const r = await squareGet(accessToken, '/v2/locations');
+    if (r.status === 200) {
+      results.locations = (r.body.locations || []).map(l => ({
+        id: l.id, name: l.name, status: l.status,
+        capabilities: l.capabilities || [],
+        address: [l.address?.address_line_1, l.address?.locality, l.address?.administrative_district_level_1, l.address?.postal_code].filter(Boolean).join(', '),
+        mcc: l.mcc || null,
+        type: l.type || null,
+        currency: l.currency || 'USD',
+      }));
+    } else {
+      results.locations = { error: r.body?.errors?.[0]?.detail || `HTTP ${r.status}` };
+    }
+  } catch (e) { results.locations = { error: e.message }; }
+
+  // 3. Bank accounts
+  try {
+    const r = await squareGet(accessToken, '/v2/bank-accounts');
+    if (r.status === 200) {
+      results.bankAccounts = (r.body.bank_accounts || []).map(a => ({
+        bankName: a.bank_name, last4: a.account_number_suffix, status: a.status,
+        creditable: a.creditable, debitable: a.debitable, holderName: a.holder_name || a.account_holder_name || null,
+      }));
+    } else {
+      results.bankAccounts = { error: r.body?.errors?.[0]?.detail || `HTTP ${r.status}` };
+    }
+  } catch (e) { results.bankAccounts = { error: e.message }; }
+
+  // 4. Disputes (open)
+  try {
+    const r = await squareGet(accessToken, '/v2/disputes?states=INQUIRY_EVIDENCE_REQUIRED,EVIDENCE_REQUIRED,PROCESSING&limit=10');
+    if (r.status === 200) {
+      results.disputes = { count: (r.body.disputes || []).length, items: (r.body.disputes || []).slice(0, 5).map(d => ({ id: d.id, state: d.state, amount: d.amount_money, reason: d.reason, createdAt: d.created_at })) };
+    } else {
+      results.disputes = { count: 0, error: r.body?.errors?.[0]?.detail };
+    }
+  } catch (e) { results.disputes = { count: 0, error: e.message }; }
+
+  // 5. API permissions test — try key scopes
+  const permTests = {};
+  const testEndpoints = [
+    { name: 'PAYMENTS_READ', path: '/v2/payments?limit=1' },
+    { name: 'CUSTOMERS_READ', path: '/v2/customers?limit=1' },
+    { name: 'INVOICES_READ', path: '/v2/invoices?location_id=' + profile.location_id + '&limit=1' },
+    { name: 'ORDERS_READ', path: '/v2/orders/search', method: 'POST', body: { query: { filter: { location_ids: [profile.location_id] } }, limit: 1 } },
+    { name: 'BANK_ACCOUNTS_READ', path: '/v2/bank-accounts' },
+    { name: 'PAYOUTS_READ', path: '/v2/payouts?location_id=' + profile.location_id + '&limit=1' },
+    { name: 'DISPUTES_READ', path: '/v2/disputes?limit=1' },
+  ];
+  await Promise.all(testEndpoints.map(async t => {
+    try {
+      const r = t.method === 'POST'
+        ? await squarePost(accessToken, t.path, t.body)
+        : await squareGet(accessToken, t.path);
+      permTests[t.name] = r.status === 200 ? 'ok' : (r.status === 403 ? 'denied' : (r.status === 401 ? 'expired' : `error:${r.status}`));
+    } catch (e) { permTests[t.name] = 'error'; }
+  }));
+  results.permissions = permTests;
+
+  res.json(results);
+});
+
 // GET transactions from DB
 app.get('/api/profiles/:id/transactions', requireAuth, (req, res) => {
   const txs = dbAll(

@@ -1029,6 +1029,7 @@ function renderProfileList() {
         ${!p.active ? `<button class="btn btn-primary btn-sm" onclick="switchProfile('${p.id}')">Activate</button>` : ''}
         <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
         <button class="btn btn-sm" onclick="checkProfileIp('${p.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe" id="btn-ip-${p.id}">🔍 Check IP</button>
+        <button class="btn btn-sm" onclick="healthCheck('${p.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d" id="btn-health-${p.id}">🏥 Health</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>
       </div>
       <div id="ip-result-${p.id}" style="display:none;margin-top:6px;padding:8px 12px;border-radius:8px;font-size:12px;"></div>
@@ -1263,6 +1264,95 @@ async function checkProfileIp(id) {
     result.innerHTML = `❌ Error: ${e.message}`;
   }
   btn.textContent = '🔍 Check IP';
+  btn.disabled = false;
+}
+
+async function healthCheck(id) {
+  const btn = document.getElementById(`btn-health-${id}`);
+  const result = document.getElementById(`ip-result-${id}`);
+  btn.textContent = '⏳ Checking...';
+  btn.disabled = true;
+  result.style.display = 'block';
+  result.style.background = '#f9fafb';
+  result.style.color = '#374151';
+  result.innerHTML = 'Running health check...';
+  try {
+    const r = await fetch(`/api/profiles/${id}/health`, { credentials: 'include' });
+    const d = await r.json();
+    if (d.error) { result.innerHTML = `<span style="color:#ef4444">Error: ${d.error}</span>`; return; }
+
+    let html = '';
+
+    // Merchant
+    if (d.merchant && !d.merchant.error) {
+      const m = d.merchant;
+      html += `<div style="margin-bottom:8px;"><strong>📋 Merchant</strong><br>
+        Status: <span style="color:${m.status==='ACTIVE'?'#059669':'#ef4444'};font-weight:600">${m.status}</span> · ${m.country} · ${m.currency}<br>
+        Business: ${m.businessName || '—'} · Created: ${m.createdAt ? new Date(m.createdAt).toLocaleDateString('en-US') : '—'}
+      </div>`;
+    } else if (d.merchant?.error) {
+      html += `<div style="margin-bottom:8px;color:#ef4444"><strong>📋 Merchant:</strong> ${d.merchant.error}</div>`;
+    }
+
+    // Locations
+    if (Array.isArray(d.locations)) {
+      html += `<div style="margin-bottom:8px;"><strong>📍 Locations (${d.locations.length})</strong>`;
+      for (const l of d.locations) {
+        const caps = l.capabilities || [];
+        const missingCaps = ['CREDIT_CARD_PROCESSING','AUTOMATIC_TRANSFERS'].filter(c => !caps.includes(c));
+        html += `<div style="margin-left:12px;margin-top:4px;">
+          ${l.name} — <span style="color:${l.status==='ACTIVE'?'#059669':'#ef4444'}">${l.status}</span>
+          ${l.mcc ? ` · MCC: ${l.mcc}` : ''} ${l.type ? ` · ${l.type}` : ''}<br>
+          <span style="font-size:11px;color:#6b7280;">${l.address || '—'}</span><br>
+          <span style="font-size:11px;">Capabilities: ${caps.length ? caps.map(c => `<span style="color:#059669">✅ ${c}</span>`).join(' ') : '<span style="color:#ef4444">none</span>'}</span>
+          ${missingCaps.length ? `<br><span style="font-size:11px;color:#f59e0b;">⚠ Missing: ${missingCaps.join(', ')}</span>` : ''}
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    // Bank accounts
+    if (Array.isArray(d.bankAccounts)) {
+      html += `<div style="margin-bottom:8px;"><strong>🏦 Bank Accounts (${d.bankAccounts.length})</strong>`;
+      if (!d.bankAccounts.length) html += '<div style="margin-left:12px;color:#f59e0b;">⚠ No bank accounts linked</div>';
+      for (const a of d.bankAccounts) {
+        const st = a.status === 'VERIFICATION_IN_PROGRESS' ? '⏳' : a.status === 'DISABLED' ? '❌' : '✅';
+        html += `<div style="margin-left:12px;">${a.bankName || '?'} ****${a.last4 || '??'} ${st} ${a.status} · creditable: ${a.creditable ? '✅' : '❌'} · debitable: ${a.debitable ? '✅' : '❌'}${a.holderName ? ' · ' + a.holderName : ''}</div>`;
+      }
+      html += '</div>';
+    }
+
+    // Disputes
+    if (d.disputes) {
+      const dc = d.disputes.count || 0;
+      html += `<div style="margin-bottom:8px;"><strong>⚖️ Open Disputes: ${dc}</strong>`;
+      if (dc > 0) {
+        for (const disp of (d.disputes.items || [])) {
+          html += `<div style="margin-left:12px;font-size:12px;color:#dc2626;">${disp.state} · $${((disp.amount?.amount||0)/100).toFixed(2)} · ${disp.reason || 'No reason'} · ${disp.createdAt ? new Date(disp.createdAt).toLocaleDateString('en-US') : ''}</div>`;
+        }
+      } else {
+        html += ' <span style="color:#059669;">✅ Clean</span>';
+      }
+      html += '</div>';
+    }
+
+    // Permissions
+    if (d.permissions) {
+      html += `<div><strong>🔒 API Permissions</strong><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">`;
+      for (const [scope, status] of Object.entries(d.permissions)) {
+        const icon = status === 'ok' ? '✅' : status === 'denied' ? '🚫' : status === 'expired' ? '⏰' : '❌';
+        const color = status === 'ok' ? '#059669' : '#ef4444';
+        html += `<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:${status==='ok'?'#ecfdf5':'#fef2f2'};color:${color}">${icon} ${scope}</span>`;
+      }
+      html += '</div></div>';
+    }
+
+    result.innerHTML = html || 'No data';
+  } catch (e) {
+    result.style.color = '#ef4444';
+    result.innerHTML = `Error: ${e.message}`;
+  }
+  btn.textContent = '🏥 Health';
   btn.disabled = false;
 }
 
