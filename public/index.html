@@ -373,6 +373,7 @@
     <div class="tab" onclick="switchTab('history')">📋 History</div>
     <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
         <div class="tab" onclick="switchTab('payouts')">💸 Payouts</div>
+<div class="tab" onclick="switchTab('invoices')">📄 Invoices</div>
 <div class="tab" onclick="switchTab('customers')">👥 Customers</div>
 <div class="tab" onclick="switchTab('report')">📊 Report</div>
     <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
@@ -470,6 +471,102 @@
       <button onclick="loadPayoutsMore()" style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;">Load more</button>
     </div>
   </div>
+
+  <!-- Invoices Panel -->
+  <div class="panel" id="panel-invoices">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;">Invoices</h3>
+      <div style="display:flex;gap:6px;">
+        <button onclick="toggleInvoiceForm()" id="btn-new-invoice" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">+ New Invoice</button>
+        <button onclick="loadInvoices()" style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;">🔄</button>
+      </div>
+    </div>
+    <!-- Status filter -->
+    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;" id="inv-filters">
+      <button class="period-btn active" data-status="" onclick="filterInvoices('')">All</button>
+      <button class="period-btn" data-status="DRAFT" onclick="filterInvoices('DRAFT')">Draft</button>
+      <button class="period-btn" data-status="UNPAID" onclick="filterInvoices('UNPAID')">Unpaid</button>
+      <button class="period-btn" data-status="SCHEDULED" onclick="filterInvoices('SCHEDULED')">Scheduled</button>
+      <button class="period-btn" data-status="PARTIALLY_PAID" onclick="filterInvoices('PARTIALLY_PAID')">Partial</button>
+      <button class="period-btn" data-status="PAID" onclick="filterInvoices('PAID')">Paid</button>
+      <button class="period-btn" data-status="CANCELED" onclick="filterInvoices('CANCELED')">Canceled</button>
+    </div>
+    <!-- Create Invoice Form (hidden by default) -->
+    <div id="invoice-form" style="display:none;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:12px;">New Invoice</div>
+      <div class="field">
+        <label>Title</label>
+        <input type="text" id="inv-title" placeholder="e.g. Website Development" />
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <input type="text" id="inv-desc" placeholder="Optional description" />
+      </div>
+      <div class="field">
+        <label>Customer <span class="req">*</span></label>
+        <div style="position:relative;">
+          <input type="text" id="inv-customer-search" placeholder="Search customer by name/email..." oninput="searchInvCustomers(this.value)" autocomplete="off" />
+          <div id="inv-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+        </div>
+        <input type="hidden" id="inv-customer-id" />
+      </div>
+      <div style="font-size:13px;font-weight:600;color:#374151;margin:12px 0 6px;">Items</div>
+      <div id="inv-items">
+        <div class="inv-item-row" style="display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;">
+          <input type="text" placeholder="Item name" class="inv-item-name" />
+          <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" />
+          <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" /></div>
+          <span></span>
+        </div>
+      </div>
+      <button onclick="addInvItem()" style="background:none;border:none;color:#006AFF;font-size:12px;font-weight:600;cursor:pointer;padding:4px 0;">+ Add item</button>
+      <div class="row" style="margin-top:10px;">
+        <div class="field">
+          <label>Due Date</label>
+          <input type="date" id="inv-due" />
+        </div>
+        <div class="field">
+          <label>Invoice # (optional)</label>
+          <input type="text" id="inv-number" placeholder="Auto-generated if blank" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Delivery</label>
+          <select id="inv-delivery">
+            <option value="EMAIL">Email</option>
+            <option value="SMS">SMS</option>
+            <option value="SHARE_MANUALLY">Manual (copy link)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Sale/Service Date</label>
+          <input type="date" id="inv-sale-date" />
+        </div>
+      </div>
+      <div style="font-size:13px;font-weight:600;color:#374151;margin:8px 0 4px;">Accepted Payment Methods</div>
+      <div style="display:flex;gap:12px;font-size:13px;margin-bottom:10px;">
+        <label><input type="checkbox" id="inv-accept-card" checked /> Card</label>
+        <label><input type="checkbox" id="inv-accept-bank" /> Bank Transfer</label>
+        <label><input type="checkbox" id="inv-accept-cash" /> Cash App</label>
+      </div>
+      <div style="display:flex;gap:12px;font-size:13px;margin-bottom:12px;">
+        <label><input type="checkbox" id="inv-tipping" /> Enable tipping</label>
+      </div>
+      <div class="result" id="inv-result"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="createInvoice(false)" style="flex:1">Save Draft</button>
+        <button class="btn btn-primary" onclick="createInvoice(true)" style="flex:1;background:#059669">Publish & Send</button>
+        <button class="btn btn-sm" onclick="toggleInvoiceForm()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:13px 16px">Cancel</button>
+      </div>
+    </div>
+    <!-- Invoice List -->
+    <div id="invoices-list"><p style="color:#6b7280;font-size:14px;">Click 🔄 to load invoices</p></div>
+    <div id="invoices-more" style="display:none;text-align:center;margin-top:12px;">
+      <button onclick="loadInvoicesMore()" style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;">Load more</button>
+    </div>
+  </div>
+
   <div class="panel" id="panel-customers">
   <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
     <input type="text" id="cust-search" placeholder="Search name, email, phone..." style="flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" oninput="debouncedCustomerSearch()" />
@@ -1006,10 +1103,9 @@ async function switchProfile(id) {
     if (document.getElementById('panel-manual').classList.contains('active')) {
       await initSquare();
     }
-    // Reload payouts if that tab is open
-    if (document.getElementById('panel-payouts').classList.contains('active')) {
-      loadPayouts();
-    }
+    // Reload payouts/invoices if that tab is open
+    if (document.getElementById('panel-payouts').classList.contains('active')) loadPayouts();
+    if (document.getElementById('panel-invoices').classList.contains('active')) loadInvoices();
   }
 }
 
@@ -1368,11 +1464,12 @@ function switchTab(tab) {
     t.classList.toggle('active',
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
       (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
-      (i === 4 && tab === 'payouts') || (i === 5 && tab === 'customers') ||
-      (i === 6 && tab === 'report') || (i === 7 && tab === 'settings')
+      (i === 4 && tab === 'payouts') || (i === 5 && tab === 'invoices') ||
+      (i === 6 && tab === 'customers') || (i === 7 && tab === 'report') ||
+      (i === 8 && tab === 'settings')
     );
   });
-  ['manual','link','history','locations','payouts','customers','report','settings'].forEach(id => {
+  ['manual','link','history','locations','payouts','invoices','customers','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
   if (tab === 'manual')    initSquare();
@@ -1380,6 +1477,7 @@ function switchTab(tab) {
   if (tab === 'history')   loadHistory();
   if (tab === 'locations') loadLocations();
   if (tab === 'payouts')   loadPayouts();
+  if (tab === 'invoices')  loadInvoices();
   if (tab === 'customers') loadCustomers();
   if (tab === 'report')    loadReport();
   if (tab === 'settings')  loadProfiles();
@@ -2071,6 +2169,237 @@ async function loadPayouts(append) {
 
 function loadPayoutsMore() {
   loadPayouts(true);
+}
+
+
+// ── Invoices ──────────────────────────────────────────────────────────────────────────
+let invoicesCursor = null;
+let invoiceStatusFilter = '';
+let invCustomerSearchTimeout = null;
+
+function toggleInvoiceForm() {
+  const form = document.getElementById('invoice-form');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') {
+    // Set default due date to 7 days from now
+    const d = new Date(Date.now() + 7 * 86400000);
+    document.getElementById('inv-due').value = d.toISOString().slice(0, 10);
+  }
+}
+
+function addInvItem() {
+  const container = document.getElementById('inv-items');
+  const row = document.createElement('div');
+  row.className = 'inv-item-row';
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;';
+  row.innerHTML = `
+    <input type="text" placeholder="Item name" class="inv-item-name" />
+    <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" />
+    <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" /></div>
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;">✕</button>`;
+  container.appendChild(row);
+}
+
+function searchInvCustomers(query) {
+  clearTimeout(invCustomerSearchTimeout);
+  const results = document.getElementById('inv-customer-results');
+  if (query.length < 2) { results.style.display = 'none'; return; }
+  invCustomerSearchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?search=${encodeURIComponent(query)}`, { credentials: 'include' });
+      const data = await r.json();
+      const customers = data.customers || [];
+      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:13px;">No customers found</div>'; results.style.display = 'block'; return; }
+      results.innerHTML = customers.slice(0, 8).map(c => {
+        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+        const email = c.emailAddress || '';
+        return `<div onclick="selectInvCustomer('${c.id}','${name.replace(/'/g, "\\'")} ${email ? '(' + email + ')' : ''}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:13px;display:flex;justify-content:space-between;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">
+          <span style="font-weight:500;color:#111827;">${name}</span>
+          <span style="color:#6b7280;font-size:12px;">${email}</span>
+        </div>`;
+      }).join('');
+      results.style.display = 'block';
+    } catch (_) { results.style.display = 'none'; }
+  }, 300);
+}
+
+function selectInvCustomer(id, label) {
+  document.getElementById('inv-customer-id').value = id;
+  document.getElementById('inv-customer-search').value = label;
+  document.getElementById('inv-customer-results').style.display = 'none';
+}
+
+async function createInvoice(publish) {
+  const result = document.getElementById('inv-result');
+  const customerId = document.getElementById('inv-customer-id').value;
+  if (!customerId) { showResult(result, 'error', 'Select a customer'); return; }
+
+  // Collect items
+  const rows = document.querySelectorAll('.inv-item-row');
+  const items = [];
+  for (const row of rows) {
+    const name = row.querySelector('.inv-item-name')?.value?.trim();
+    const qty = parseInt(row.querySelector('.inv-item-qty')?.value) || 1;
+    const price = parseFloat(row.querySelector('.inv-item-price')?.value);
+    if (!name || !price) continue;
+    items.push({ name, quantity: qty, price });
+  }
+  if (!items.length) { showResult(result, 'error', 'Add at least one item with name and price'); return; }
+
+  const body = {
+    title: document.getElementById('inv-title').value.trim() || undefined,
+    description: document.getElementById('inv-desc').value.trim() || undefined,
+    customerId,
+    items,
+    dueDate: document.getElementById('inv-due').value || undefined,
+    deliveryMethod: document.getElementById('inv-delivery').value,
+    invoiceNumber: document.getElementById('inv-number').value.trim() || undefined,
+    saleDateStr: document.getElementById('inv-sale-date').value || undefined,
+    acceptCard: document.getElementById('inv-accept-card').checked,
+    acceptBankTransfer: document.getElementById('inv-accept-bank').checked,
+    acceptCash: document.getElementById('inv-accept-cash').checked,
+    tippingEnabled: document.getElementById('inv-tipping').checked,
+  };
+
+  showResult(result, 'info', 'Creating invoice...');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/invoices`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+
+    const inv = data.invoice;
+    if (publish) {
+      // Publish immediately
+      const pr = await fetch(`/api/profiles/${profilesData.activeId}/invoices/${inv.id}/publish`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ version: inv.version }),
+      });
+      const pdata = await pr.json();
+      if (pdata.error) { showResult(result, 'error', `Draft created but publish failed: ${pdata.error}`); loadInvoices(); return; }
+      const publicUrl = pdata.invoice?.public_url;
+      showResult(result, 'success', `Invoice published & sent!${publicUrl ? ` <a href="${publicUrl}" target="_blank" style="color:#006AFF">Open payment page ↗</a>` : ''}`);
+    } else {
+      showResult(result, 'success', `Draft invoice created (${inv.id.slice(0, 12)}…)`);
+    }
+    toggleInvoiceForm();
+    loadInvoices();
+  } catch (e) {
+    showResult(result, 'error', e.message);
+  }
+}
+
+function filterInvoices(status) {
+  invoiceStatusFilter = status;
+  document.querySelectorAll('#inv-filters .period-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.status === status)
+  );
+  loadInvoices();
+}
+
+async function loadInvoices(append) {
+  const list = document.getElementById('invoices-list');
+  const moreBtn = document.getElementById('invoices-more');
+  if (!append) { list.innerHTML = '<p style="color:#6b7280;font-size:14px;">Loading...</p>'; invoicesCursor = null; }
+
+  try {
+    const params = `limit=20${invoicesCursor ? '&cursor=' + invoicesCursor : ''}${invoiceStatusFilter ? '&status=' + invoiceStatusFilter : ''}`;
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/invoices?${params}`, { credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { list.innerHTML = `<div class="empty-state" style="color:#ef4444">⚠️ ${data.error}</div>`; return; }
+    invoicesCursor = data.cursor || null;
+    const invoices = data.invoices || [];
+
+    if (!invoices.length && !append) {
+      list.innerHTML = '<p style="color:#6b7280;font-size:14px;text-align:center;padding:20px 0;">No invoices found.</p>';
+      moreBtn.style.display = 'none';
+      return;
+    }
+
+    const statusColors = { DRAFT: '#6b7280', SCHEDULED: '#2563eb', UNPAID: '#f59e0b', PARTIALLY_PAID: '#f97316', PAID: '#059669', PAYMENT_PENDING: '#8b5cf6', CANCELED: '#ef4444', REFUNDED: '#dc2626' };
+
+    const html = invoices.map(inv => {
+      const amt = inv.totalMoney ? `$${(Number(inv.totalMoney.amount) / 100).toFixed(2)}` : '—';
+      const statusColor = statusColors[inv.status] || '#6b7280';
+      const date = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+      const due = inv.dueDate || '—';
+      const title = inv.title || inv.invoiceNumber || inv.id.slice(0, 12) + '…';
+
+      // Actions based on status
+      let actions = '';
+      if (inv.status === 'DRAFT') {
+        actions = `
+          <button onclick="publishInvoice('${inv.id}',${inv.version})" style="background:#059669;color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">Publish</button>
+          <button onclick="deleteInvoice('${inv.id}',${inv.version})" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">Delete</button>`;
+      } else if (['UNPAID', 'PARTIALLY_PAID', 'SCHEDULED', 'PAYMENT_PENDING'].includes(inv.status)) {
+        actions = `<button onclick="cancelInvoice('${inv.id}',${inv.version})" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">Cancel</button>`;
+      }
+      if (inv.publicUrl) {
+        actions += ` <button onclick="navigator.clipboard.writeText('${inv.publicUrl}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',1500)" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">Copy Link</button>`;
+        actions += ` <a href="${inv.publicUrl}" target="_blank" style="background:#006AFF;color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;">Open ↗</a>`;
+      }
+
+      return `<div style="padding:12px 0;border-bottom:1px solid #f3f4f6;">
+        <div style="display:grid;grid-template-columns:1fr 90px 80px 70px;gap:8px;align-items:center;font-size:13px;">
+          <div>
+            <div style="color:#111827;font-weight:600;">${title}</div>
+            <div style="color:#9ca3af;font-size:11px;">${inv.invoiceNumber ? '#' + inv.invoiceNumber + ' · ' : ''}${date}${inv.deliveryMethod ? ' · ' + inv.deliveryMethod : ''}</div>
+          </div>
+          <div style="text-align:right;font-weight:700;color:#111827;">${amt}</div>
+          <div style="text-align:center;"><span style="background:${statusColor}15;color:${statusColor};font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;">${inv.status}</span></div>
+          <div style="text-align:right;color:#6b7280;font-size:11px;">Due: ${due}</div>
+        </div>
+        ${actions ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">${actions}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    if (append) list.insertAdjacentHTML('beforeend', html);
+    else list.innerHTML = html;
+    moreBtn.style.display = invoicesCursor ? 'block' : 'none';
+  } catch (e) {
+    list.innerHTML = `<p style="color:#ef4444;font-size:14px;">Error: ${e.message}</p>`;
+  }
+}
+
+function loadInvoicesMore() { loadInvoices(true); }
+
+async function publishInvoice(id, version) {
+  if (!confirm('Publish this invoice? It will be sent to the customer.')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/invoices/${id}/publish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ version }),
+    });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    loadInvoices();
+  } catch (e) { alert(e.message); }
+}
+
+async function cancelInvoice(id, version) {
+  if (!confirm('Cancel this invoice?')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/invoices/${id}/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ version }),
+    });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    loadInvoices();
+  } catch (e) { alert(e.message); }
+}
+
+async function deleteInvoice(id, version) {
+  if (!confirm('Delete this draft invoice?')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/invoices/${id}?version=${version}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    loadInvoices();
+  } catch (e) { alert(e.message); }
 }
 
 

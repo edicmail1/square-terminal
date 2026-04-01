@@ -1063,6 +1063,203 @@ app.get('/api/profiles/:id/report', requireAuth, async (req, res) => {
   }
 });
 
+// ── Invoices ──────────────────────────────────────────────────────────────────
+
+// LIST invoices (with optional status filter)
+app.get('/api/profiles/:id/invoices', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  const cursor = req.query.cursor || '';
+  const qs = `location_id=${profile.location_id}&limit=${limit}${cursor ? '&cursor=' + cursor : ''}`;
+  const r = await safeSquareCall(profile, (token) => squareGet(token, `/v2/invoices?${qs}`));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  const statusFilter = req.query.status || '';
+  let invoices = (r.body.invoices || []).map(inv => ({
+    id: inv.id, version: inv.version, status: inv.status,
+    invoiceNumber: inv.invoice_number || null,
+    title: inv.title || null,
+    description: inv.description || null,
+    publicUrl: inv.public_url || null,
+    createdAt: inv.created_at,
+    updatedAt: inv.updated_at,
+    scheduledAt: inv.scheduled_at || null,
+    totalMoney: inv.payment_requests?.[0]?.computed_amount_money || inv.payment_requests?.[0]?.fixed_amount_requested_money || null,
+    nextPaymentAmount: inv.next_payment_amount_money || null,
+    dueDate: inv.payment_requests?.[0]?.due_date || null,
+    deliveryMethod: inv.delivery_method || null,
+    orderId: inv.order_id || null,
+    customerName: null,
+    customerId: inv.primary_recipient?.customer_id || null,
+    acceptedMethods: inv.accepted_payment_methods || {},
+    paymentRequests: (inv.payment_requests || []).map(pr => ({
+      requestType: pr.request_type, dueDate: pr.due_date,
+      amount: pr.computed_amount_money || pr.fixed_amount_requested_money || null,
+      tippingEnabled: pr.tipping_enabled || false,
+      automaticPaymentSource: pr.automatic_payment_source || 'NONE',
+    })),
+  }));
+  if (statusFilter) invoices = invoices.filter(i => i.status === statusFilter);
+  res.json({ invoices, cursor: r.body.cursor || null });
+});
+
+// SEARCH invoices (by status, customer, dates)
+app.post('/api/profiles/:id/invoices/search', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { statuses, customerId, startDate, endDate } = req.body;
+  const query = { filter: { location_ids: [profile.location_id] }, limit: 50 };
+  if (statuses?.length) query.filter.status = statuses;
+  if (customerId) query.filter.customer_ids = [customerId];
+  if (startDate || endDate) {
+    query.filter.date_range = {};
+    if (startDate) query.filter.date_range.start_at = startDate;
+    if (endDate) query.filter.date_range.end_at = endDate;
+  }
+  const r = await safeSquareCall(profile, (token) => squarePost(token, '/v2/invoices/search', { query }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  const invoices = (r.body.invoices || []).map(inv => ({
+    id: inv.id, version: inv.version, status: inv.status,
+    invoiceNumber: inv.invoice_number || null,
+    title: inv.title || null,
+    publicUrl: inv.public_url || null,
+    createdAt: inv.created_at,
+    totalMoney: inv.payment_requests?.[0]?.computed_amount_money || inv.payment_requests?.[0]?.fixed_amount_requested_money || null,
+    dueDate: inv.payment_requests?.[0]?.due_date || null,
+    customerId: inv.primary_recipient?.customer_id || null,
+  }));
+  res.json({ invoices });
+});
+
+// GET single invoice detail
+app.get('/api/profiles/:id/invoices/:invoiceId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const r = await safeSquareCall(profile, (token) => squareGet(token, `/v2/invoices/${req.params.invoiceId}`));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  res.json({ invoice: r.body.invoice });
+});
+
+// CREATE invoice (creates order + draft invoice)
+app.post('/api/profiles/:id/invoices', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { title, description, customerId, items, dueDate, deliveryMethod, acceptCard, acceptBankTransfer, acceptCash, invoiceNumber, saleDateStr, tippingEnabled, autoPaySource } = req.body;
+  if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
+  if (!customerId) return res.status(400).json({ error: 'Customer is required' });
+
+  const accessToken = getDecryptedToken(profile);
+
+  // 1. Create Order
+  const lineItems = items.map(item => ({
+    name: item.name || 'Item',
+    quantity: String(item.quantity || 1),
+    base_price_money: { amount: Math.round(parseFloat(item.price) * 100), currency: 'USD' },
+  }));
+  const orderBody = {
+    order: { location_id: profile.location_id, line_items: lineItems },
+    idempotency_key: crypto.randomUUID(),
+  };
+  const orderRes = await squarePost(accessToken, '/v2/orders', orderBody);
+  if (orderRes.status !== 200) {
+    return res.status(orderRes.status).json({ error: orderRes.body?.errors?.[0]?.detail || 'Failed to create order' });
+  }
+  const orderId = orderRes.body.order.id;
+
+  // 2. Create Invoice (draft)
+  const invoiceBody = {
+    invoice: {
+      location_id: profile.location_id,
+      order_id: orderId,
+      primary_recipient: { customer_id: customerId },
+      delivery_method: deliveryMethod || 'EMAIL',
+      payment_requests: [{
+        request_type: 'BALANCE',
+        due_date: dueDate || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+        tipping_enabled: tippingEnabled || false,
+        automatic_payment_source: autoPaySource || 'NONE',
+      }],
+      accepted_payment_methods: {
+        card: acceptCard !== false,
+        square_gift_card: false,
+        bank_account: acceptBankTransfer || false,
+        buy_now_pay_later: false,
+        cash_app_pay: acceptCash || false,
+      },
+    },
+    idempotency_key: crypto.randomUUID(),
+  };
+  if (title) invoiceBody.invoice.title = title;
+  if (description) invoiceBody.invoice.description = description;
+  if (invoiceNumber) invoiceBody.invoice.invoice_number = invoiceNumber;
+  if (saleDateStr) invoiceBody.invoice.sale_or_service_date = saleDateStr;
+
+  const invRes = await squarePost(accessToken, '/v2/invoices', invoiceBody);
+  if (invRes.status !== 200) {
+    return res.status(invRes.status).json({ error: invRes.body?.errors?.[0]?.detail || 'Failed to create invoice' });
+  }
+  res.json({ invoice: invRes.body.invoice });
+});
+
+// PUBLISH invoice (sends to customer)
+app.post('/api/profiles/:id/invoices/:invoiceId/publish', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { version } = req.body;
+  const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/invoices/${req.params.invoiceId}/publish`, {
+    version: version || 0,
+    idempotency_key: crypto.randomUUID(),
+  }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  res.json({ invoice: r.body.invoice });
+});
+
+// CANCEL invoice
+app.post('/api/profiles/:id/invoices/:invoiceId/cancel', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { version } = req.body;
+  const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/invoices/${req.params.invoiceId}/cancel`, {
+    version: version || 0,
+  }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  res.json({ invoice: r.body.invoice });
+});
+
+// DELETE invoice (draft only)
+app.delete('/api/profiles/:id/invoices/:invoiceId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const version = req.query.version || 0;
+  const r = await safeSquareCall(profile, (token) => squareRequest('DELETE', token, `/v2/invoices/${req.params.invoiceId}?version=${version}`, null));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  res.json({ success: true });
+});
+
+// UPDATE invoice
+app.put('/api/profiles/:id/invoices/:invoiceId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { version, title, description, dueDate } = req.body;
+  const fields = [];
+  const invoice = {};
+  if (title !== undefined) { invoice.title = title; fields.push('title'); }
+  if (description !== undefined) { invoice.description = description; fields.push('description'); }
+  if (dueDate) { invoice.payment_requests = [{ request_type: 'BALANCE', due_date: dueDate }]; fields.push('payment_requests[0].due_date'); }
+  const r = await safeSquareCall(profile, (token) => squareRequest('PUT', token, `/v2/invoices/${req.params.invoiceId}`, {
+    invoice, fields_to_clear: [], idempotency_key: crypto.randomUUID(),
+  }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  res.json({ invoice: r.body.invoice });
+});
+
 // Charge
 app.post('/api/charge', requireAuth, async (req, res) => {
   const { sourceId, amount, currency, note, buyerEmail, verificationToken } = req.body;
