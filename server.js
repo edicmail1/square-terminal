@@ -1413,6 +1413,33 @@ app.get('/api/profiles/:id/customers', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Create customer
+app.post('/api/profiles/:id/customers', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { givenName, familyName, emailAddress, phoneNumber, addressLine1, locality, state, postalCode, country } = req.body;
+  if (!givenName && !familyName && !emailAddress) return res.status(400).json({ error: 'At least a name or email is required' });
+  const body = { idempotency_key: crypto.randomUUID() };
+  if (givenName) body.given_name = givenName;
+  if (familyName) body.family_name = familyName;
+  if (emailAddress) body.email_address = emailAddress;
+  if (phoneNumber) body.phone_number = phoneNumber;
+  if (addressLine1 || locality || state || postalCode) {
+    body.address = {};
+    if (addressLine1) body.address.address_line_1 = addressLine1;
+    if (locality) body.address.locality = locality;
+    if (state) body.address.administrative_district_level_1 = state;
+    if (postalCode) body.address.postal_code = postalCode;
+    body.address.country = country || 'US';
+  }
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, '/v2/customers', body);
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create customer' });
+  const c = r.body.customer;
+  res.json({ customer: { id: c.id, givenName: c.given_name, familyName: c.family_name, emailAddress: c.email_address, phoneNumber: c.phone_number } });
+});
+
 // Single customer
 app.get('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
