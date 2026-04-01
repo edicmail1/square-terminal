@@ -1337,24 +1337,6 @@ async function healthCheck(id) {
       html += '</div>';
     }
 
-    // Permissions
-    if (d.permissions) {
-      const entries = Object.entries(d.permissions);
-      const okCount = entries.filter(([,v]) => v.status === 'ok').length;
-      const failCount = entries.length - okCount;
-      html += `<div><strong>🔒 API Permissions (${okCount}/${entries.length})</strong>`;
-      if (failCount > 0) html += ` <span style="color:#ef4444;font-size:12px;">— ${failCount} missing!</span>`;
-      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-top:4px;">`;
-      for (const [scope, val] of entries) {
-        const st = val.status || val;
-        const use = val.use || '';
-        const icon = st === 'ok' ? '✅' : st === 'denied' ? '🚫' : st === 'expired' ? '⏰' : '❌';
-        const bg = st === 'ok' ? '#ecfdf5' : '#fef2f2';
-        const color = st === 'ok' ? '#059669' : '#ef4444';
-        html += `<span style="font-size:11px;padding:3px 6px;border-radius:4px;background:${bg};color:${color}" title="${use}">${icon} ${scope}${use ? ' <span style="color:#9ca3af;font-size:10px;">(' + use + ')</span>' : ''}</span>`;
-      }
-      html += '</div></div>';
-    }
 
     // Live Tests
     if (d.liveTests) {
