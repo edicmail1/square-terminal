@@ -1305,7 +1305,8 @@ async function healthCheck(id) {
           ${l.mcc ? ` · MCC: ${l.mcc}` : ''} ${l.type ? ` · ${l.type}` : ''}<br>
           <span style="font-size:11px;color:#6b7280;">${l.address || '—'}</span><br>
           <span style="font-size:11px;">Capabilities: ${caps.length ? caps.map(c => `<span style="color:#059669">✅ ${c}</span>`).join(' ') : '<span style="color:#ef4444">none</span>'}</span>
-          ${missingCaps.length ? `<br><span style="font-size:11px;color:#f59e0b;">⚠ Missing: ${missingCaps.join(', ')}</span>` : ''}
+          ${missingCaps.includes('CREDIT_CARD_PROCESSING') ? `<br><span style="font-size:12px;color:#dc2626;font-weight:700;">⛔ ACCOUNT CANNOT PROCESS PAYMENTS — Payments, Invoices, Payment Links blocked by Square</span>` : ''}
+          ${missingCaps.includes('AUTOMATIC_TRANSFERS') ? `<br><span style="font-size:11px;color:#f59e0b;">⚠ Missing: AUTOMATIC_TRANSFERS — payouts to bank may not work</span>` : ''}
         </div>`;
       }
       html += '</div>';
