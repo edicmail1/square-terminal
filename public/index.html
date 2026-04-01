@@ -1443,15 +1443,7 @@ async function loadReport() {
 
     const periodLabel = { today: 'Today', week: 'Last 7 Days', month: 'This Month', year: 'This Year', custom: 'Custom Range' }[currentPeriod];
 
-    // Balance card color
-    const balColor = estimatedBalance >= 0 ? '#059669' : '#dc2626';
-
     document.getElementById('report-totals').innerHTML = `
-      <div class="report-total-card" style="grid-column:span 2;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border-color:#6ee7b7">
-        <div class="report-total-label">💰 Estimated Balance</div>
-        <div class="report-total-value" style="color:${balColor};font-size:28px">$${estimatedBalance.toFixed(2)}</div>
-        <div style="font-size:10px;color:#6b7280;margin-top:2px">= revenue - fees - refunds - disputes - payouts</div>
-      </div>
       <div class="report-total-card highlight" style="grid-column:span 2">
         <div class="report-total-label">💳 Gross Revenue · ${periodLabel}</div>
         <div class="report-total-value">$${grandTotal.toFixed(2)}</div>
