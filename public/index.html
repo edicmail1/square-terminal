@@ -659,7 +659,7 @@
     <div class="section-title" id="form-title">➕ Add Business</div>
     <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.7;color:#78350f">
       <strong>📋 Где найти ключи в Square:</strong><br>
-      1. Зайдите на <a href="https://developer.squareup.com/console/en/apps" target="_blank" style="color:#006AFF">developer.squareup.com</a><br>
+      1. Зайдите на <a href="https://developer.squareup.com/apps?lang=en-US" target="_blank" style="color:#006AFF">developer.squareup.com/apps</a><br>
       2. Нажмите <strong>+ New Application</strong> (или выберите существующее)<br>
       3. Вкладка <strong>Credentials</strong> → скопируйте <strong>Production Access Token</strong> и <strong>Application ID</strong><br>
       4. В левом меню → <strong>Locations</strong> → скопируйте <strong>Location ID</strong> нужного бизнеса
@@ -668,11 +668,6 @@
     <div class="field">
       <label>Business Name <span class="req">*</span></label>
       <input type="text" id="s-name" placeholder="e.g. Acme Salon" />
-    </div>
-    <div class="field">
-      <label>Access Token</label>
-      <input type="password" id="s-token" placeholder="EAAl... (leave blank to keep current)" autocomplete="off" />
-      <div class="hint" id="s-token-hint"></div>
     </div>
     <div class="row">
       <div class="field">
@@ -683,6 +678,11 @@
         <label>Location ID <span class="req">*</span></label>
         <input type="text" id="s-locid" placeholder="L..." autocomplete="off" />
       </div>
+    </div>
+    <div class="field">
+      <label>Access Token</label>
+      <input type="password" id="s-token" placeholder="EAAl... (leave blank to keep current)" autocomplete="off" />
+      <div class="hint" id="s-token-hint"></div>
     </div>
     <div class="field">
       <label>Max Amount per Transaction (optional)</label>
