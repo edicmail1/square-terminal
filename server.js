@@ -870,21 +870,27 @@ app.get('/api/profiles/:id/health', requireAuth, async (req, res) => {
   // 5. API permissions test — try key scopes
   const permTests = {};
   const testEndpoints = [
-    { name: 'PAYMENTS_READ', path: '/v2/payments?limit=1' },
-    { name: 'CUSTOMERS_READ', path: '/v2/customers?limit=1' },
-    { name: 'INVOICES_READ', path: '/v2/invoices?location_id=' + profile.location_id + '&limit=1' },
-    { name: 'ORDERS_READ', path: '/v2/orders/search', method: 'POST', body: { query: { filter: { location_ids: [profile.location_id] } }, limit: 1 } },
-    { name: 'BANK_ACCOUNTS_READ', path: '/v2/bank-accounts' },
-    { name: 'PAYOUTS_READ', path: '/v2/payouts?location_id=' + profile.location_id + '&limit=1' },
-    { name: 'DISPUTES_READ', path: '/v2/disputes?limit=1' },
+    { name: 'PAYMENTS_READ', path: '/v2/payments?limit=1', use: 'History, Report' },
+    { name: 'PAYMENTS_WRITE', path: '/v2/payments?limit=1', use: 'Manual Entry charge' },
+    { name: 'CUSTOMERS_READ', path: '/v2/customers?limit=1', use: 'Customers tab' },
+    { name: 'CUSTOMERS_WRITE', path: '/v2/customers?limit=1', use: 'Create customer' },
+    { name: 'INVOICES_READ', path: '/v2/invoices?location_id=' + profile.location_id + '&limit=1', use: 'Invoices tab' },
+    { name: 'INVOICES_WRITE', path: '/v2/invoices?location_id=' + profile.location_id + '&limit=1', use: 'Create/publish invoice' },
+    { name: 'ORDERS_READ', path: '/v2/orders/search', method: 'POST', body: { query: { filter: { location_ids: [profile.location_id] } }, limit: 1 }, use: 'Customer payments' },
+    { name: 'ORDERS_WRITE', path: '/v2/orders/search', method: 'POST', body: { query: { filter: { location_ids: [profile.location_id] } }, limit: 1 }, use: 'Invoice order' },
+    { name: 'BANK_ACCOUNTS_READ', path: '/v2/bank-accounts', use: 'Payouts bank info' },
+    { name: 'PAYOUTS_READ', path: '/v2/payouts?location_id=' + profile.location_id + '&limit=1', use: 'Payouts tab' },
+    { name: 'DISPUTES_READ', path: '/v2/disputes?limit=1', use: 'Report disputes' },
+    { name: 'MERCHANT_PROFILE_READ', path: '/v2/merchants/me', use: 'Profile validation' },
+    { name: 'MERCHANT_PROFILE_WRITE', path: '/v2/locations', use: 'Create/edit locations' },
   ];
   await Promise.all(testEndpoints.map(async t => {
     try {
       const r = t.method === 'POST'
         ? await squarePost(accessToken, t.path, t.body)
         : await squareGet(accessToken, t.path);
-      permTests[t.name] = r.status === 200 ? 'ok' : (r.status === 403 ? 'denied' : (r.status === 401 ? 'expired' : `error:${r.status}`));
-    } catch (e) { permTests[t.name] = 'error'; }
+      permTests[t.name] = { status: r.status === 200 ? 'ok' : (r.status === 403 ? 'denied' : (r.status === 401 ? 'expired' : `error:${r.status}`)), use: t.use };
+    } catch (e) { permTests[t.name] = { status: 'error', use: t.use }; }
   }));
   results.permissions = permTests;
 
