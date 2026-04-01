@@ -782,6 +782,11 @@
       <div class="hint" id="s-token-hint"></div>
     </div>
     <div class="field">
+      <label>Proxy (optional)</label>
+      <input type="text" id="s-proxy" placeholder="socks5://user:pass@1.2.3.4:1080 or http://..." autocomplete="off" />
+      <div class="hint">All Square API calls for this business will go through this proxy</div>
+    </div>
+    <div class="field">
       <label>Max Amount per Transaction (optional)</label>
       <div class="amount-wrap">
         <span>$</span>
@@ -959,7 +964,7 @@ function renderProfileList() {
         <div style="flex:1">
           <div class="profile-card-name">${p.name}</div>
           <div class="profile-card-sub">
-            ${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
+            ${p.proxyUrl ? `🔒 Proxy · ` : ''}${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
             ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
           </div>
         </div>
@@ -1117,6 +1122,7 @@ function editProfile(id) {
   document.getElementById('s-appid').value = p.applicationId;
   document.getElementById('s-locid').value = p.locationId;
   document.getElementById('s-maxamount').value = p.maxAmount || '';
+  document.getElementById('s-proxy').value = p.proxyUrl || '';
   document.getElementById('s-token').value = '';
   document.getElementById('s-token-hint').textContent = 'Current: ' + p.accessTokenMasked;
   document.getElementById('form-title').textContent = '✏️ Edit Business';
@@ -1125,7 +1131,7 @@ function editProfile(id) {
 }
 
 function cancelEdit() {
-  ['edit-id','s-name','s-appid','s-locid','s-token','s-maxamount'].forEach(id => {
+  ['edit-id','s-name','s-appid','s-locid','s-token','s-maxamount','s-proxy'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('s-token-hint').textContent = '';
@@ -1140,6 +1146,7 @@ async function saveProfile() {
   const appId = document.getElementById('s-appid').value.trim();
   const locId = document.getElementById('s-locid').value.trim();
   const maxAmount = document.getElementById('s-maxamount').value.trim();
+  const proxyUrl = document.getElementById('s-proxy').value.trim();
   const result = document.getElementById('result-settings');
 
   if (!name || !appId || !locId) {
@@ -1155,6 +1162,7 @@ async function saveProfile() {
   if (id) body.id = id;
   if (token) body.accessToken = token;
   if (maxAmount) body.maxAmount = parseFloat(maxAmount);
+  body.proxyUrl = proxyUrl;
 
   const res = await fetch('/api/profiles', {
     method: 'POST',

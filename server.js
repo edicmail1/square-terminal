@@ -3,7 +3,12 @@ const express = require('express');
 const { Client, Environment } = require('square');
 const { v4: uuidv4 } = require('uuid');
 const https = require('https');
+const http = require('http');
+const { URL } = require('url');
 const crypto = require('crypto');
+let HttpsProxyAgent, SocksProxyAgent;
+try { HttpsProxyAgent = require('https-proxy-agent').HttpsProxyAgent; } catch (_) {}
+try { SocksProxyAgent = require('socks-proxy-agent').SocksProxyAgent; } catch (_) {}
 const cookieParser = require('cookie-parser');
 const Database = require('better-sqlite3');
 const jwt = require('jsonwebtoken');
@@ -214,6 +219,9 @@ function migrateFromEnv() {
 
 migrateFromEnv();
 
+// Add proxy_url column if missing
+try { db.exec("ALTER TABLE profiles ADD COLUMN proxy_url TEXT DEFAULT ''"); } catch (_) {}
+
 // ── Profile Helpers ─────────────────────────────────────────────────────────
 function getActiveProfile() {
   return dbGet("SELECT * FROM profiles WHERE is_active = 1") || dbGet("SELECT * FROM profiles LIMIT 1");
@@ -331,12 +339,27 @@ function clearLoginAttempts(ip) {
 }
 
 // ── Square API helpers ──────────────────────────────────────────────────────
-function squareRequest(method, accessToken, apiPath, body) {
+function getProxyAgent(proxyUrl) {
+  if (!proxyUrl) return null;
+  try {
+    if (proxyUrl.startsWith('socks')) {
+      if (!SocksProxyAgent) { console.warn('socks-proxy-agent not installed'); return null; }
+      return new SocksProxyAgent(proxyUrl);
+    }
+    // HTTP/HTTPS proxy
+    if (!HttpsProxyAgent) { console.warn('https-proxy-agent not installed'); return null; }
+    return new HttpsProxyAgent(proxyUrl);
+  } catch (e) { console.error('Proxy agent error:', e.message); return null; }
+}
+
+function squareRequest(method, accessToken, apiPath, body, proxyUrl) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
+    const agent = getProxyAgent(proxyUrl !== undefined ? proxyUrl : _currentProxy);
     const req = https.request({
       hostname: 'connect.squareup.com',
       path: apiPath, method,
+      ...(agent ? { agent } : {}),
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Square-Version': '2025-01-23',
@@ -357,13 +380,16 @@ function squareRequest(method, accessToken, apiPath, body) {
   });
 }
 
-const squareGet  = (t, p)    => squareRequest('GET',  t, p, null);
-const squarePost = (t, p, b) => squareRequest('POST', t, p, b);
+const squareGet  = (t, p)    => squareRequest('GET',  t, p, null, _currentProxy);
+const squarePost = (t, p, b) => squareRequest('POST', t, p, b, _currentProxy);
 
 // ── Square Token Validation Wrapper ─────────────────────────────────────────
 // Wraps Square API calls to detect expired/invalid tokens and return clear errors
+// currentProxy is set per-call for squareGet/squarePost to pick up
+let _currentProxy = '';
 async function safeSquareCall(profile, apiCall) {
   try {
+    _currentProxy = profile.proxy_url || '';
     const result = await apiCall(getDecryptedToken(profile));
 
     if (result.status === 401) {
@@ -555,6 +581,7 @@ app.get('/api/profiles', requireAuth, (req, res) => {
         applicationId: p.application_id, locationId: p.location_id,
         accessTokenMasked: maskToken(p.access_token),
         maxAmount: p.max_amount,
+        proxyUrl: p.proxy_url || '',
         active: p.is_active === 1,
         transactionCount: txCount,
       };
@@ -769,15 +796,15 @@ app.post('/api/profiles/:id/activate', requireAuth, (req, res) => {
 
 // Create / Edit profile
 app.post('/api/profiles', requireAuth, (req, res) => {
-  const { id, name, accessToken, applicationId, locationId, maxAmount } = req.body;
+  const { id, name, accessToken, applicationId, locationId, maxAmount, proxyUrl } = req.body;
   if (!name || !applicationId || !locationId) return res.status(400).json({ error: 'name, applicationId and locationId are required' });
 
   if (id) {
     const p = getProfileById(id);
     if (!p) return res.status(404).json({ error: 'Not found' });
     dbRun(
-      `UPDATE profiles SET name = ?, application_id = ?, location_id = ?, max_amount = ?, updated_at = datetime('now') WHERE id = ?`,
-      [name, applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, id]
+      `UPDATE profiles SET name = ?, application_id = ?, location_id = ?, max_amount = ?, proxy_url = ?, updated_at = datetime('now') WHERE id = ?`,
+      [name, applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, proxyUrl || '', id]
     );
     if (accessToken) {
       dbRun("UPDATE profiles SET access_token = ? WHERE id = ?", [encrypt(accessToken), id]);
@@ -788,8 +815,8 @@ app.post('/api/profiles', requireAuth, (req, res) => {
     const newId = uuidv4();
     const profileCount = dbGet("SELECT COUNT(*) as count FROM profiles").count;
     dbRun(
-      `INSERT INTO profiles (id, name, access_token, application_id, location_id, max_amount, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [newId, name, encrypt(accessToken), applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, profileCount === 0 ? 1 : 0]
+      `INSERT INTO profiles (id, name, access_token, application_id, location_id, max_amount, proxy_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, name, encrypt(accessToken), applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, proxyUrl || '', profileCount === 0 ? 1 : 0]
     );
   }
 
@@ -935,6 +962,7 @@ app.get('/api/profiles/:id/report', requireAuth, async (req, res) => {
   if (locResult.status !== 200) return res.status(locResult.status).json({ error: locResult.body?.errors?.[0]?.detail || 'Failed to fetch locations' });
   const locations = locResult.body.locations || [];
   const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
 
   // Helper to paginate Square API calls
   async function fetchAllPages(token, path, key, maxItems = 500) {
@@ -1152,6 +1180,7 @@ app.post('/api/profiles/:id/invoices', requireAuth, async (req, res) => {
   if (!customerId) return res.status(400).json({ error: 'Customer is required' });
 
   const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
 
   // 1. Create Order
   const lineItems = items.map(item => ({
@@ -1326,6 +1355,7 @@ app.get('/api/profiles/:id/customers', requireAuth, async (req, res) => {
   try {
     let customers = [], newCursor = null;
     const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
     if (query) {
       const body = { query: { filter: { text_filter: { fuzzy: query } } }, limit: 50 };
       if (cursor) body.cursor = cursor;
@@ -1383,6 +1413,7 @@ app.get('/api/profiles/:id/customers/:cid/payments', requireAuth, async (req, re
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
   const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
   try {
     const locRes = await squareGet(accessToken, '/v2/locations');
     if (locRes.status === 401) return res.status(401).json({ error: `Токен для "${profile.name}" истёк.`, tokenExpired: true });
