@@ -1006,6 +1006,10 @@ async function switchProfile(id) {
     if (document.getElementById('panel-manual').classList.contains('active')) {
       await initSquare();
     }
+    // Reload payouts if that tab is open
+    if (document.getElementById('panel-payouts').classList.contains('active')) {
+      loadPayouts();
+    }
   }
 }
 
@@ -1937,10 +1941,14 @@ async function loadPayouts(append) {
     const profilesData = await profilesRes.json();
     const profiles = profilesData.profiles || [];
 
+    // Filter to active profile only (or all if none active)
+    const activeId = profilesData?.activeId;
+    const filtered = activeId ? profiles.filter(p => p.id === activeId) : profiles;
+
     // Load bank accounts in parallel with payouts
     const [_, results] = await Promise.all([
-      append ? Promise.resolve() : loadBankAccounts(profiles),
-      Promise.all(profiles.map(async p => {
+      append ? Promise.resolve() : loadBankAccounts(filtered),
+      Promise.all(filtered.map(async p => {
         try {
           const cursor = payoutsCursors[p.id] || '';
           const r = await fetch(`/api/profiles/${p.id}/payouts?limit=10${cursor ? '&cursor=' + cursor : ''}`, { credentials: 'include' });
