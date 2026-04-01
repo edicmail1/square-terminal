@@ -1429,30 +1429,64 @@ async function loadReport() {
     const grandNet     = activeLocs.reduce((s, l) => s + parseFloat(l.net          || 0), 0);
     const grandFees    = activeLocs.reduce((s, l) => s + parseFloat(l.totalFees    || 0), 0);
     const grandRefunds = activeLocs.reduce((s, l) => s + parseFloat(l.totalRefunds || 0), 0);
+    const grandTips    = activeLocs.reduce((s, l) => s + parseFloat(l.totalTips    || 0), 0);
     const grandCount   = activeLocs.reduce((s, l) => s + (l.countOk || 0), 0);
+    const grandFailed  = activeLocs.reduce((s, l) => s + (l.countFailed || 0), 0);
+    const grandRefunded= activeLocs.reduce((s, l) => s + (l.countRefunded || 0), 0);
+    const grandAvg     = grandCount > 0 ? (grandTotal / grandCount) : 0;
+
+    // Disputes & payouts from API
+    const disputes = data.disputes || { total: '0.00', count: 0, won: 0, lost: 0, pending: 0, totalLost: '0.00' };
+    const payoutsInfo = data.payouts || { total: '0.00', count: 0 };
+    const estimatedBalance = parseFloat(data.estimatedBalance || 0);
+    const refundsInfo = data.refunds || { total: '0.00', count: 0, reasons: {} };
 
     const periodLabel = { today: 'Today', week: 'Last 7 Days', month: 'This Month', year: 'This Year', custom: 'Custom Range' }[currentPeriod];
 
+    // Balance card color
+    const balColor = estimatedBalance >= 0 ? '#059669' : '#dc2626';
+
     document.getElementById('report-totals').innerHTML = `
+      <div class="report-total-card" style="grid-column:span 2;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border-color:#6ee7b7">
+        <div class="report-total-label">💰 Estimated Balance</div>
+        <div class="report-total-value" style="color:${balColor};font-size:28px">$${estimatedBalance.toFixed(2)}</div>
+        <div style="font-size:10px;color:#6b7280;margin-top:2px">= revenue - fees - refunds - disputes - payouts</div>
+      </div>
       <div class="report-total-card highlight" style="grid-column:span 2">
-        <div class="report-total-label">Total Revenue · ${periodLabel}</div>
+        <div class="report-total-label">💳 Gross Revenue · ${periodLabel}</div>
         <div class="report-total-value">$${grandTotal.toFixed(2)}</div>
       </div>
       <div class="report-total-card">
-        <div class="report-total-label">Net (after fees)</div>
-        <div class="report-total-value">$${grandNet.toFixed(2)}</div>
+        <div class="report-total-label">✅ Net (after fees & refunds)</div>
+        <div class="report-total-value" style="color:#059669">$${grandNet.toFixed(2)}</div>
       </div>
       <div class="report-total-card">
-        <div class="report-total-label">Processing Fees</div>
+        <div class="report-total-label">💸 Processing Fees</div>
         <div class="report-total-value" style="color:#ef4444">-$${grandFees.toFixed(2)}</div>
       </div>
       <div class="report-total-card">
-        <div class="report-total-label">Refunds</div>
+        <div class="report-total-label">🔄 Refunds (${refundsInfo.count})</div>
         <div class="report-total-value" style="color:#f59e0b">-$${grandRefunds.toFixed(2)}</div>
       </div>
       <div class="report-total-card">
-        <div class="report-total-label">Completed Payments</div>
-        <div class="report-total-value">${grandCount}</div>
+        <div class="report-total-label">⚖️ Disputes (${disputes.count})</div>
+        <div class="report-total-value" style="color:#dc2626">${disputes.count > 0 ? '-$' + disputes.total : '$0.00'}</div>
+        ${disputes.count > 0 ? `<div style="font-size:10px;color:#6b7280;margin-top:2px">Won: ${disputes.won} · Lost: ${disputes.lost} (-$${disputes.totalLost}) · Pending: ${disputes.pending}</div>` : ''}
+      </div>
+      <div class="report-total-card">
+        <div class="report-total-label">📤 Total Payouts (${payoutsInfo.count})</div>
+        <div class="report-total-value">$${payoutsInfo.total}</div>
+      </div>
+      ${grandTips > 0 ? `<div class="report-total-card">
+        <div class="report-total-label">🪙 Tips</div>
+        <div class="report-total-value" style="color:#059669">+$${grandTips.toFixed(2)}</div>
+      </div>` : ''}
+      <div class="report-total-card">
+        <div class="report-total-label">📊 Stats</div>
+        <div style="font-size:12px;color:#374151;line-height:1.8">
+          ${grandCount} completed · ${grandFailed} failed · ${grandRefunded} refunded<br>
+          Avg: $${grandAvg.toFixed(2)} · Refund rate: ${grandCount > 0 ? ((grandRefunded/grandCount)*100).toFixed(1) : '0.0'}%
+        </div>
       </div>`;
     summaryEl.style.display = 'block';
 
@@ -1478,11 +1512,19 @@ async function loadReport() {
             </div>
             <div class="report-stat">
               <div class="report-stat-val" style="color:#f59e0b">-$${l.totalRefunds}</div>
-              <div class="report-stat-lbl">Refunds</div>
+              <div class="report-stat-lbl">Refunds (${l.countRefunded || 0})</div>
             </div>
             <div class="report-stat">
               <div class="report-stat-val" style="color:#ef4444">${l.countFailed}</div>
               <div class="report-stat-lbl">Failed</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val">$${l.avgTransaction || '0.00'}</div>
+              <div class="report-stat-lbl">Avg Tx</div>
+            </div>
+            <div class="report-stat">
+              <div class="report-stat-val">${l.refundRate || '0.0'}%</div>
+              <div class="report-stat-lbl">Refund Rate</div>
             </div>
           </div>
         </div>`;

@@ -936,33 +936,131 @@ app.get('/api/profiles/:id/report', requireAuth, async (req, res) => {
   const locations = locResult.body.locations || [];
   const accessToken = getDecryptedToken(profile);
 
-  const reportByLocation = [];
-  for (const loc of locations) {
-    if (loc.status !== 'ACTIVE') { reportByLocation.push({ locationId: loc.id, locationName: loc.name, status: loc.status }); continue; }
-    let allPayments = [], cursor = null;
+  // Helper to paginate Square API calls
+  async function fetchAllPages(token, path, key, maxItems = 500) {
+    let all = [], cursor = null;
     do {
-      const params = new URLSearchParams({ location_id: loc.id, begin_time: beginTime.toISOString(), end_time: endTime.toISOString(), limit: '100', sort_order: 'DESC' });
-      if (cursor) params.set('cursor', cursor);
-      const r = await squareGet(accessToken, `/v2/payments?${params}`);
-      if (r.status === 401) {
-        return res.status(401).json({ error: `Токен для "${profile.name}" истёк. Обновите в настройках.`, tokenExpired: true });
-      }
+      const sep = path.includes('?') ? '&' : '?';
+      const url = cursor ? `${path}${sep}cursor=${cursor}` : path;
+      const r = await squareGet(token, url);
+      if (r.status === 401) throw { tokenExpired: true, detail: `Токен для "${profile.name}" истёк. Обновите в настройках.` };
       if (r.status !== 200) break;
-      allPayments = allPayments.concat(r.body.payments || []);
+      all = all.concat(r.body[key] || []);
       cursor = r.body.cursor || null;
-      if (allPayments.length >= 500) break;
+      if (all.length >= maxItems) break;
     } while (cursor);
-
-    let totalAmount = 0, totalFees = 0, totalRefunds = 0, countOk = 0, countFailed = 0;
-    for (const p of allPayments) {
-      if (p.status === 'COMPLETED') { totalAmount += Number(p.amount_money?.amount || 0); totalFees += Number(p.processing_fee?.[0]?.amount_money?.amount || 0); countOk++; }
-      else if (['FAILED','CANCELED'].includes(p.status)) countFailed++;
-      if (p.refunded_money) totalRefunds += Number(p.refunded_money?.amount || 0);
-    }
-    const fmt = v => (v / 100).toFixed(2);
-    reportByLocation.push({ locationId: loc.id, locationName: loc.name, status: loc.status, currency: loc.currency || 'USD', totalAmount: fmt(totalAmount), totalFees: fmt(totalFees), totalRefunds: fmt(totalRefunds), net: fmt(totalAmount - totalFees - totalRefunds), countOk, countFailed, totalPayments: allPayments.length });
+    return all;
   }
-  res.json({ period, beginTime: beginTime.toISOString(), endTime: endTime.toISOString(), locations: reportByLocation });
+
+  try {
+    const reportByLocation = [];
+    for (const loc of locations) {
+      if (loc.status !== 'ACTIVE') { reportByLocation.push({ locationId: loc.id, locationName: loc.name, status: loc.status }); continue; }
+
+      // Fetch payments for this location + period
+      const payParams = `location_id=${loc.id}&begin_time=${beginTime.toISOString()}&end_time=${endTime.toISOString()}&limit=100&sort_order=DESC`;
+      const allPayments = await fetchAllPages(accessToken, `/v2/payments?${payParams}`, 'payments');
+
+      let totalAmount = 0, totalTips = 0, totalFees = 0, totalRefunds = 0, countOk = 0, countFailed = 0, countRefunded = 0;
+      const paymentMethods = {};
+      for (const p of allPayments) {
+        if (p.status === 'COMPLETED') {
+          totalAmount += Number(p.amount_money?.amount || 0);
+          totalTips += Number(p.tip_money?.amount || 0);
+          // Sum ALL processing fees (not just [0])
+          for (const fee of (p.processing_fee || [])) totalFees += Number(fee.amount_money?.amount || 0);
+          countOk++;
+          // Payment method breakdown
+          const method = p.source_type || 'OTHER';
+          paymentMethods[method] = (paymentMethods[method] || 0) + 1;
+        }
+        else if (['FAILED','CANCELED'].includes(p.status)) countFailed++;
+        if (p.refunded_money) {
+          totalRefunds += Number(p.refunded_money.amount || 0);
+          countRefunded++;
+        }
+      }
+      const fmt = v => (v / 100).toFixed(2);
+      const avgTransaction = countOk > 0 ? totalAmount / countOk : 0;
+      const refundRate = countOk > 0 ? ((countRefunded / countOk) * 100).toFixed(1) : '0.0';
+
+      reportByLocation.push({
+        locationId: loc.id, locationName: loc.name, status: loc.status,
+        currency: loc.currency || 'USD',
+        totalAmount: fmt(totalAmount),
+        totalTips: fmt(totalTips),
+        totalFees: fmt(totalFees),
+        totalRefunds: fmt(totalRefunds),
+        net: fmt(totalAmount - totalFees - totalRefunds),
+        countOk, countFailed, countRefunded,
+        totalPayments: allPayments.length,
+        avgTransaction: fmt(avgTransaction),
+        refundRate,
+        paymentMethods,
+      });
+    }
+
+    // Fetch refunds separately (gives more detail than payment.refunded_money)
+    const refundParams = `begin_time=${beginTime.toISOString()}&end_time=${endTime.toISOString()}&limit=100&sort_order=DESC`;
+    const allRefunds = await fetchAllPages(accessToken, `/v2/refunds?${refundParams}`, 'refunds');
+    const refundBreakdown = { total: 0, count: allRefunds.length, reasons: {} };
+    for (const r of allRefunds) {
+      refundBreakdown.total += Number(r.amount_money?.amount || 0);
+      const reason = r.reason || 'No reason';
+      refundBreakdown.reasons[reason] = (refundBreakdown.reasons[reason] || 0) + 1;
+    }
+    refundBreakdown.total = (refundBreakdown.total / 100).toFixed(2);
+
+    // Fetch disputes (chargebacks)
+    let disputes = [];
+    try {
+      const dispResult = await squareGet(accessToken, `/v2/disputes?states=INQUIRY_EVIDENCE_REQUIRED,INQUIRY_PROCESSING,INQUIRY_CLOSED,EVIDENCE_REQUIRED,PROCESSING,WON,LOST&limit=50`);
+      if (dispResult.status === 200) disputes = dispResult.body.disputes || [];
+    } catch (_) {}
+    const disputeBreakdown = { total: 0, count: disputes.length, won: 0, lost: 0, pending: 0, totalLost: 0 };
+    for (const d of disputes) {
+      const amt = Number(d.disputed_payment?.amount_money?.amount || d.amount_money?.amount || 0);
+      disputeBreakdown.total += amt;
+      if (d.state === 'WON' || d.state === 'INQUIRY_CLOSED') disputeBreakdown.won++;
+      else if (d.state === 'LOST') { disputeBreakdown.lost++; disputeBreakdown.totalLost += amt; }
+      else disputeBreakdown.pending++;
+    }
+    disputeBreakdown.total = (disputeBreakdown.total / 100).toFixed(2);
+    disputeBreakdown.totalLost = (disputeBreakdown.totalLost / 100).toFixed(2);
+
+    // Fetch payouts total (all time — for balance calculation)
+    let payoutTotal = 0, payoutCount = 0;
+    try {
+      const payoutParams = `location_id=${profile.location_id}&limit=100`;
+      const allPayouts = await fetchAllPages(accessToken, `/v2/payouts?${payoutParams}`, 'payouts', 200);
+      for (const p of allPayouts) {
+        if (p.status === 'PAID' || p.status === 'SENT') {
+          payoutTotal += Number(p.amount_money?.amount || 0);
+          payoutCount++;
+        }
+      }
+    } catch (_) {}
+
+    // Calculate estimated balance: gross - fees - refunds - disputes_lost - payouts
+    const activeLocs = reportByLocation.filter(l => l.status === 'ACTIVE');
+    const grossCents = activeLocs.reduce((s, l) => s + Math.round(parseFloat(l.totalAmount) * 100), 0);
+    const feesCents = activeLocs.reduce((s, l) => s + Math.round(parseFloat(l.totalFees) * 100), 0);
+    const refundsCents = activeLocs.reduce((s, l) => s + Math.round(parseFloat(l.totalRefunds) * 100), 0);
+    const disputeLostCents = Math.round(parseFloat(disputeBreakdown.totalLost) * 100);
+    const estimatedBalance = ((grossCents - feesCents - refundsCents - disputeLostCents - payoutTotal) / 100).toFixed(2);
+
+    res.json({
+      period, beginTime: beginTime.toISOString(), endTime: endTime.toISOString(),
+      locations: reportByLocation,
+      refunds: refundBreakdown,
+      disputes: disputeBreakdown,
+      payouts: { total: (payoutTotal / 100).toFixed(2), count: payoutCount },
+      estimatedBalance,
+    });
+  } catch (err) {
+    if (err.tokenExpired) return res.status(401).json({ error: err.detail, tokenExpired: true });
+    throw err;
+  }
 });
 
 // Charge
