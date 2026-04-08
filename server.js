@@ -1849,7 +1849,7 @@ app.get('/api/profiles/:id/customers', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
   const cursor = req.query.cursor || null;
-  const query = req.query.query || '';
+  const query = req.query.query || req.query.search || '';
   try {
     let customers = [], newCursor = null;
     const accessToken = getDecryptedToken(profile);

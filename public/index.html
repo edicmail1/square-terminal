@@ -2640,7 +2640,7 @@ function searchNewSubCustomers(query) {
   if (query.length < 2) { results.style.display = 'none'; return; }
   newsubCustomerSearchTimeout = setTimeout(async () => {
     try {
-      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?search=${encodeURIComponent(query)}`, { credentials: 'include' });
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
       const data = await r.json();
       const customers = data.customers || [];
       if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
@@ -2942,7 +2942,7 @@ function searchInvCustomers(query) {
   if (query.length < 2) { results.style.display = 'none'; return; }
   invCustomerSearchTimeout = setTimeout(async () => {
     try {
-      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?search=${encodeURIComponent(query)}`, { credentials: 'include' });
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
       const data = await r.json();
       const customers = data.customers || [];
       if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:13px;">No customers found</div>'; results.style.display = 'block'; return; }
