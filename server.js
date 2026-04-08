@@ -927,11 +927,13 @@ app.get('/api/profiles/:id/health', requireAuth, async (req, res) => {
       const code = r.body?.errors?.[0]?.code || '';
       // "not enabled to take payments" = account blocked
       // "INVALID_CARD_DATA" or "VERIFY_CVV/AVS" = permission ok, card just fake
-      const isPermOk = code === 'INVALID_CARD_DATA' || code === 'VERIFY_CVV_FAILURE' || code === 'VERIFY_AVS_FAILURE' || code === 'BAD_REQUEST';
-      if (detail.includes('not been enabled')) {
+      // Any error OTHER than "not enabled" means account CAN process payments (just test nonce is invalid)
+      if (detail.includes('not been enabled') || detail.includes('not enabled')) {
         liveTests.chargePayment = { status: 'blocked', detail };
-      } else if (r.status === 400 || isPermOk) {
-        liveTests.chargePayment = { status: 'ok', detail: 'Can process payments (test nonce rejected as expected)' };
+      } else if (code === 'NOT_FOUND' || code === 'INVALID_CARD_DATA' || code === 'BAD_REQUEST' || code === 'CARD_TOKEN_EXPIRED' || detail.includes('nonce') || detail.includes('source') || r.status === 400) {
+        liveTests.chargePayment = { status: 'ok', detail: 'Can process payments' };
+      } else if (r.status === 403) {
+        liveTests.chargePayment = { status: 'denied', detail: 'Token lacks PAYMENTS_WRITE permission' };
       } else {
         liveTests.chargePayment = { status: 'error', detail };
       }
