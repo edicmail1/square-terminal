@@ -1481,7 +1481,8 @@ app.post('/api/profiles/:id/cards', requireAuth, async (req, res) => {
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
   const r = await squarePost(accessToken, '/v2/cards', {
-    source_id: sourceId, customer_id: customerId,
+    source_id: sourceId,
+    card: { customer_id: customerId },
     idempotency_key: crypto.randomUUID(),
   });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to save card' });
