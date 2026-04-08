@@ -1854,7 +1854,34 @@ app.get('/api/profiles/:id/customers', requireAuth, async (req, res) => {
     const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
     if (query) {
-      const body = { query: { filter: { text_filter: { fuzzy: query } } }, limit: 50 };
+      // Try email fuzzy first, then phone, then fallback to list + filter locally
+      const isEmail = query.includes('@');
+      const isPhone = /\d{3,}/.test(query.replace(/\D/g, ''));
+      let body;
+      if (isEmail) {
+        body = { query: { filter: { email_address: { fuzzy: query } } }, limit: 50 };
+      } else if (isPhone) {
+        body = { query: { filter: { phone_number: { fuzzy: query } } }, limit: 50 };
+      } else {
+        // Search by given/family name — Square doesn't support fuzzy name search,
+        // so fetch all and filter locally
+        let apiPath = '/v2/customers?limit=100&sort_field=CREATED_AT&sort_order=DESC';
+        const r2 = await squareGet(accessToken, apiPath);
+        if (r2.status !== 200) return res.status(r2.status).json({ error: r2.body?.errors?.[0]?.detail || 'Square error' });
+        const q = query.toLowerCase();
+        customers = (r2.body.customers || []).filter(c =>
+          (c.given_name || '').toLowerCase().includes(q) ||
+          (c.family_name || '').toLowerCase().includes(q) ||
+          (c.email_address || '').toLowerCase().includes(q) ||
+          (c.phone_number || '').includes(q)
+        );
+        res.json({ customers: customers.map(c => ({
+          id: c.id, givenName: c.given_name || '', familyName: c.family_name || '',
+          email: c.email_address || '', emailAddress: c.email_address || '', phone: c.phone_number || '',
+          createdAt: c.created_at, source: c.creation_source || '', segmentIds: c.segment_ids || [],
+        })), cursor: null });
+        return;
+      }
       if (cursor) body.cursor = cursor;
       const r = await squarePost(accessToken, '/v2/customers/search', body);
       if (r.status === 401) return res.status(401).json({ error: `Токен для "${profile.name}" истёк. Обновите в настройках.`, tokenExpired: true });
