@@ -137,6 +137,17 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT,
+    read INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
+
   CREATE INDEX IF NOT EXISTS idx_transactions_profile ON transactions(profile_id);
   CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
@@ -1509,12 +1520,13 @@ app.delete('/api/profiles/:id/cards/:cardId', requireAuth, async (req, res) => {
 app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { name, cadence, amount, currency } = req.body;
+  const { name, cadence, amount, currency, periods } = req.body;
   if (!name || !cadence || !amount) return res.status(400).json({ error: 'name, cadence, and amount required' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
   const planId = '#plan_' + Date.now();
   const varId = '#var_' + Date.now();
+  const periodsInt = periods ? parseInt(periods) : null;
   const r = await squarePost(accessToken, '/v2/catalog/upsert', {
     idempotency_key: crypto.randomUUID(),
     object: {
@@ -1526,10 +1538,10 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
           type: 'SUBSCRIPTION_PLAN_VARIATION',
           id: varId,
           subscription_plan_variation_data: {
-            name: `${name} — ${cadence}`,
+            name: `${name} — ${cadence}${periodsInt ? ' ×' + periodsInt : ''}`,
             phases: [{
               cadence,
-              periods: null,
+              periods: periodsInt,
               pricing: {
                 type: 'STATIC',
                 price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' },
@@ -1654,6 +1666,124 @@ app.post('/api/profiles/:id/subscriptions/:subId/cancel', requireAuth, async (re
   if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
   res.json({ subscription: r.body.subscription });
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+// Get notifications
+app.get('/api/notifications', requireAuth, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const unreadOnly = req.query.unread === '1';
+  const where = unreadOnly ? 'WHERE read = 0' : '';
+  const notifs = dbAll(`SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ?`, [limit]);
+  const unreadCount = dbGet("SELECT COUNT(*) as count FROM notifications WHERE read = 0").count;
+  res.json({ notifications: notifs, unreadCount });
+});
+
+// Mark notifications as read
+app.post('/api/notifications/read', requireAuth, (req, res) => {
+  const { ids } = req.body;
+  if (ids && ids.length) {
+    const placeholders = ids.map(() => '?').join(',');
+    dbRun(`UPDATE notifications SET read = 1 WHERE id IN (${placeholders})`, ids);
+  } else {
+    dbRun("UPDATE notifications SET read = 1");
+  }
+  res.json({ success: true });
+});
+
+// Register webhook for a profile
+app.post('/api/profiles/:id/webhook/register', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const baseUrl = req.protocol + '://' + req.get('host');
+  const r = await squarePost(accessToken, '/v2/webhooks/subscriptions', {
+    idempotency_key: crypto.randomUUID(),
+    subscription: {
+      name: 'PNX Panel Notifications',
+      event_types: ['payment.created', 'payment.updated', 'subscription.created', 'subscription.updated'],
+      notification_url: baseUrl + '/api/webhook/square',
+      api_version: '2025-01-23',
+    },
+  });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to register webhook' });
+  res.json({ webhook: r.body.subscription });
+});
+
+// List webhooks for a profile
+app.get('/api/profiles/:id/webhook/list', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squareGet(accessToken, '/v2/webhooks/subscriptions');
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ webhooks: r.body.subscriptions || [] });
+});
+
+// Square Webhook endpoint (no auth — Square sends directly)
+app.post('/api/webhook/square', express.raw({ type: 'application/json' }), (req, res) => {
+  // Parse body (may come as raw buffer or parsed JSON)
+  let event;
+  try {
+    event = typeof req.body === 'string' ? JSON.parse(req.body) : (Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString()) : req.body);
+  } catch (e) { return res.status(400).json({ error: 'Invalid JSON' }); }
+
+  const eventType = event.type;
+  const data = event.data?.object;
+  const merchantId = event.merchant_id;
+
+  // Find profile by merchant_id
+  const profiles = dbAll("SELECT * FROM profiles");
+  // We'll match by merchant_id if available, or just log for all
+
+  if (eventType === 'payment.created' || eventType === 'payment.updated') {
+    const payment = data?.payment;
+    if (!payment) return res.status(200).send('OK');
+    const amt = payment.amount_money ? (Number(payment.amount_money.amount) / 100).toFixed(2) : '?';
+    const status = payment.status;
+    const custId = payment.customer_id || '';
+
+    if (status === 'COMPLETED') {
+      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+        ['payment_success', `✅ Payment $${amt} completed`, `Customer: ${custId.slice(0, 12)}… · ID: ${payment.id?.slice(0, 16)}…`]);
+    } else if (status === 'FAILED') {
+      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+        ['payment_failed', `⛔ Payment $${amt} DECLINED`, `Customer: ${custId.slice(0, 12)}… · ${payment.card_details?.errors?.[0]?.detail || 'Card declined'}`]);
+      // Auto-cancel subscription if payment is from a subscription
+      if (payment.subscription_id) {
+        // Find the token for this merchant
+        for (const p of profiles) {
+          try {
+            const token = getDecryptedToken(p);
+            _currentProxy = p.proxy_url || '';
+            squarePost(token, `/v2/subscriptions/${payment.subscription_id}/cancel`, {});
+            dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+              ['subscription_canceled', `🔴 Subscription auto-canceled (decline)`, `Subscription: ${payment.subscription_id.slice(0, 16)}… — canceled due to payment failure`]);
+            break;
+          } catch (_) {}
+        }
+      }
+    }
+  } else if (eventType === 'subscription.created') {
+    const sub = data?.subscription;
+    if (sub) {
+      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+        ['subscription_created', `📋 New subscription created`, `Customer: ${sub.customer_id?.slice(0, 12)}… · Status: ${sub.status} · Start: ${sub.start_date || 'now'}`]);
+    }
+  } else if (eventType === 'subscription.updated') {
+    const sub = data?.subscription;
+    if (sub) {
+      const icons = { ACTIVE: '▶️', PAUSED: '⏸', CANCELED: '❌', DEACTIVATED: '🔴', COMPLETED: '✅', PENDING: '⏳' };
+      const icon = icons[sub.status] || '📋';
+      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+        [`subscription_${sub.status?.toLowerCase()}`, `${icon} Subscription ${sub.status}`, `Customer: ${sub.customer_id?.slice(0, 12)}… · Charged through: ${sub.charged_through_date || '—'}`]);
+    }
+  }
+
+  res.status(200).send('OK');
 });
 
 // Charge

@@ -365,6 +365,16 @@
       </select>
     </div>
     <div class="profile-limit" id="profile-limit-info"></div>
+    <div style="position:relative;display:inline-block;margin-left:8px;">
+      <button onclick="toggleNotifications()" id="notif-bell" style="background:none;border:none;font-size:20px;cursor:pointer;position:relative;">🔔<span id="notif-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:white;font-size:10px;font-weight:700;border-radius:50%;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;">0</span></button>
+      <div id="notif-panel" style="display:none;position:absolute;right:0;top:36px;width:360px;max-height:400px;overflow-y:auto;background:white;border:1px solid #d1d5db;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.15);z-index:100;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #e5e7eb;">
+          <strong style="font-size:13px;">Notifications</strong>
+          <button onclick="markAllRead()" style="background:none;border:none;color:#006AFF;font-size:11px;font-weight:600;cursor:pointer;">Mark all read</button>
+        </div>
+        <div id="notif-list" style="font-size:12px;"></div>
+      </div>
+    </div>
   </div>
 
   <div class="tabs">
@@ -659,6 +669,10 @@
             <option value="EVERY_SIX_MONTHS">Every 6 Months</option>
             <option value="ANNUAL">Annual</option>
           </select>
+        </div>
+        <div class="field" style="margin-bottom:6px;">
+          <label style="font-size:11px;">Number of charges <span style="color:#9ca3af;font-weight:400;">(leave empty = unlimited)</span></label>
+          <input type="number" id="plan-periods" placeholder="e.g. 5 = stop after 5 charges" min="1" max="999" />
         </div>
         <div id="plan-result" class="result"></div>
         <div style="display:flex;gap:6px;">
@@ -1153,6 +1167,7 @@ function renderProfileList() {
         <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
         <button class="btn btn-sm" onclick="checkProfileIp('${p.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe" id="btn-ip-${p.id}">🔍 Check IP</button>
         <button class="btn btn-sm" onclick="healthCheck('${p.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d" id="btn-health-${p.id}">🏥 Health</button>
+        <button class="btn btn-sm" onclick="registerWebhook('${p.id}')" style="background:#faf5ff;color:#7c3aed;border:1px solid #e9d5ff" id="btn-webhook-${p.id}">🔔 Webhook</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>
       </div>
       <div id="ip-result-${p.id}" style="display:none;margin-top:6px;padding:8px 12px;border-radius:8px;font-size:12px;"></div>
@@ -1388,6 +1403,42 @@ async function checkProfileIp(id) {
     result.innerHTML = `❌ Error: ${e.message}`;
   }
   btn.textContent = '🔍 Check IP';
+  btn.disabled = false;
+}
+
+async function registerWebhook(id) {
+  const btn = document.getElementById(`btn-webhook-${id}`);
+  const result = document.getElementById(`ip-result-${id}`);
+  btn.textContent = '⏳...';
+  btn.disabled = true;
+  result.style.display = 'block';
+  result.style.background = '#faf5ff';
+  result.style.color = '#7c3aed';
+  result.innerHTML = 'Registering webhook...';
+  try {
+    const r = await fetch(`/api/profiles/${id}/webhook/register`, { method: 'POST', credentials: 'include' });
+    const data = await r.json();
+    if (data.error) {
+      // Maybe already registered — try listing
+      const lr = await fetch(`/api/profiles/${id}/webhook/list`, { credentials: 'include' });
+      const ld = await lr.json();
+      const existing = (ld.webhooks || []).filter(w => w.notification_url?.includes('/api/webhook/square'));
+      if (existing.length) {
+        result.style.color = '#059669';
+        result.innerHTML = `✅ Webhook already registered (${existing.length})<br><span style="font-size:10px;color:#9ca3af;">${existing[0].notification_url}<br>Events: ${existing[0].event_types?.join(', ') || '—'}</span>`;
+      } else {
+        result.style.color = '#ef4444';
+        result.innerHTML = `❌ ${data.error}`;
+      }
+    } else {
+      result.style.color = '#059669';
+      result.innerHTML = `✅ Webhook registered!<br><span style="font-size:10px;color:#9ca3af;">Events: payment.created, payment.updated, subscription.created, subscription.updated</span>`;
+    }
+  } catch (e) {
+    result.style.color = '#ef4444';
+    result.innerHTML = `❌ ${e.message}`;
+  }
+  btn.textContent = '🔔 Webhook';
   btn.disabled = false;
 }
 
@@ -2494,6 +2545,67 @@ function loadPayoutsMore() {
 }
 
 
+// ── Notifications ─────────────────────────────────────────────────────────────────────
+let notifOpen = false;
+
+function toggleNotifications() {
+  notifOpen = !notifOpen;
+  document.getElementById('notif-panel').style.display = notifOpen ? 'block' : 'none';
+  if (notifOpen) loadNotifications();
+}
+
+async function loadNotifications() {
+  const list = document.getElementById('notif-list');
+  try {
+    const r = await fetch('/api/notifications?limit=30', { credentials: 'include' });
+    const data = await r.json();
+    const badge = document.getElementById('notif-badge');
+    badge.textContent = data.unreadCount || 0;
+    badge.style.display = data.unreadCount > 0 ? 'inline-block' : 'none';
+    const notifs = data.notifications || [];
+    if (!notifs.length) { list.innerHTML = '<div style="padding:20px;text-align:center;color:#9ca3af;">No notifications yet</div>'; return; }
+    list.innerHTML = notifs.map(n => {
+      const bg = n.read ? 'white' : '#eff6ff';
+      const time = n.created_at ? new Date(n.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+      return `<div style="padding:10px 14px;border-bottom:1px solid #f3f4f6;background:${bg};">
+        <div style="font-weight:${n.read ? '400' : '600'};color:#111827;">${n.title}</div>
+        ${n.detail ? `<div style="color:#6b7280;font-size:11px;margin-top:2px;">${n.detail}</div>` : ''}
+        <div style="color:#9ca3af;font-size:10px;margin-top:2px;">${time}</div>
+      </div>`;
+    }).join('');
+  } catch (_) {}
+}
+
+async function markAllRead() {
+  try {
+    await fetch('/api/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' });
+    document.getElementById('notif-badge').style.display = 'none';
+    loadNotifications();
+  } catch (_) {}
+}
+
+// Poll for new notifications every 60 seconds
+async function pollNotifications() {
+  try {
+    const r = await fetch('/api/notifications?limit=1&unread=1', { credentials: 'include' });
+    const data = await r.json();
+    const badge = document.getElementById('notif-badge');
+    badge.textContent = data.unreadCount || 0;
+    badge.style.display = data.unreadCount > 0 ? 'inline-block' : 'none';
+  } catch (_) {}
+}
+setInterval(pollNotifications, 60000);
+setTimeout(pollNotifications, 2000); // initial check
+
+// Close notif panel on outside click
+document.addEventListener('click', e => {
+  if (notifOpen && !e.target.closest('#notif-panel') && !e.target.closest('#notif-bell')) {
+    notifOpen = false;
+    document.getElementById('notif-panel').style.display = 'none';
+  }
+});
+
+
 // ── Subscriptions ─────────────────────────────────────────────────────────────────────
 let subCard = null; // separate Web Payments SDK card instance for save-card form
 let subCustomerSearchTimeout = null;
@@ -2624,12 +2736,15 @@ async function createPlan() {
   const name = document.getElementById('plan-name').value.trim();
   const amount = document.getElementById('plan-amount').value;
   const cadence = document.getElementById('plan-cadence').value;
+  const periods = document.getElementById('plan-periods').value;
   if (!name || !amount) { showResult(result, 'error', 'Name and amount required'); return; }
   showResult(result, 'info', 'Creating plan...');
   try {
+    const body = { name, amount: parseFloat(amount), cadence };
+    if (periods) body.periods = parseInt(periods);
     const r = await fetch(`/api/profiles/${profilesData.activeId}/plans`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ name, amount: parseFloat(amount), cadence }),
+      body: JSON.stringify(body),
     });
     const data = await r.json();
     if (data.error) { showResult(result, 'error', data.error); return; }
