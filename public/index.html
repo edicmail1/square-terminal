@@ -3202,14 +3202,21 @@ async function openAttachCard(customerId, customerName) {
       ? '<strong style="font-size:11px;">Existing cards:</strong> ' + cards.map(c => `<span style="font-size:11px;padding:2px 6px;background:#ecfdf5;border-radius:4px;color:#059669;margin-right:4px;">${c.brand} ****${c.last4}</span>`).join('')
       : '<span style="font-size:11px;color:#f59e0b;">No cards saved yet</span>';
   } catch (_) { existingDiv.innerHTML = ''; }
-  // Init card form
-  await loadSquareJs();
-  const cfg = await fetch('/api/config').then(r => r.json());
-  if (custCard) { try { await custCard.destroy(); } catch {} }
-  document.getElementById('cust-card-container').innerHTML = '';
-  const payments = Square.payments(cfg.applicationId, cfg.locationId);
-  custCard = await payments.card();
-  await custCard.attach('#cust-card-container');
+  // Init card form — ensure container is visible before attach
+  if (custCard) { try { await custCard.destroy(); } catch {} custCard = null; }
+  document.getElementById('cust-card-container').innerHTML = '<div style="color:#6b7280;font-size:12px;">Loading card form...</div>';
+  // Wait for DOM to render the visible container
+  await new Promise(r => setTimeout(r, 100));
+  try {
+    await loadSquareJs();
+    const cfg = await fetch('/api/config').then(r => r.json());
+    document.getElementById('cust-card-container').innerHTML = '';
+    const payments = Square.payments(cfg.applicationId, cfg.locationId);
+    custCard = await payments.card();
+    await custCard.attach('#cust-card-container');
+  } catch (e) {
+    document.getElementById('cust-card-container').innerHTML = `<div style="color:#ef4444;font-size:12px;">Failed to load card form: ${e.message}</div>`;
+  }
 }
 
 function closeCustAttachCard() {
