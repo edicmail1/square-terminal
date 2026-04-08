@@ -374,6 +374,7 @@
     <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
         <div class="tab" onclick="switchTab('payouts')">💸 Payouts</div>
 <div class="tab" onclick="switchTab('invoices')">📄 Invoices</div>
+<div class="tab" onclick="switchTab('subscriptions')">🔄 Subscriptions</div>
 <div class="tab" onclick="switchTab('customers')">👥 Customers</div>
 <div class="tab" onclick="switchTab('report')">📊 Report</div>
     <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
@@ -618,6 +619,128 @@
     <div id="invoices-list"><p style="color:#6b7280;font-size:14px;">Click 🔄 to load invoices</p></div>
     <div id="invoices-more" style="display:none;text-align:center;margin-top:12px;">
       <button onclick="loadInvoicesMore()" style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;">Load more</button>
+    </div>
+  </div>
+
+  <!-- Subscriptions Panel -->
+  <div class="panel" id="panel-subscriptions">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;">Subscriptions</h3>
+      <button onclick="loadSubscriptions()" style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;">🔄 Refresh</button>
+    </div>
+
+    <!-- Plans Section -->
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:13px;color:#111827;">📋 Plans</strong>
+        <button onclick="toggleSubSection('plan-form')" style="background:#006AFF;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">+ New Plan</button>
+      </div>
+      <!-- New Plan Form -->
+      <div id="plan-form" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;margin-bottom:8px;">
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:2;margin-bottom:6px;">
+            <label style="font-size:11px;">Plan Name</label>
+            <input type="text" id="plan-name" placeholder="e.g. Daily Delivery" />
+          </div>
+          <div class="field" style="flex:1;margin-bottom:6px;">
+            <label style="font-size:11px;">Amount</label>
+            <div class="amount-wrap"><span>$</span><input type="number" id="plan-amount" placeholder="50.00" step="0.01" min="1" /></div>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:6px;">
+          <label style="font-size:11px;">Billing Cadence</label>
+          <select id="plan-cadence">
+            <option value="DAILY">Daily</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="EVERY_TWO_WEEKS">Every 2 Weeks</option>
+            <option value="MONTHLY" selected>Monthly</option>
+            <option value="THIRTY_DAYS">Every 30 Days</option>
+            <option value="QUARTERLY">Quarterly</option>
+            <option value="EVERY_SIX_MONTHS">Every 6 Months</option>
+            <option value="ANNUAL">Annual</option>
+          </select>
+        </div>
+        <div id="plan-result" class="result"></div>
+        <div style="display:flex;gap:6px;">
+          <button onclick="createPlan()" class="btn btn-primary" style="flex:1;padding:8px;font-size:12px;">Create Plan</button>
+          <button onclick="toggleSubSection('plan-form')" class="btn btn-sm" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:8px 12px;font-size:12px;">Cancel</button>
+        </div>
+      </div>
+      <div id="plans-list" style="font-size:12px;color:#6b7280;">Loading...</div>
+    </div>
+
+    <!-- Save Card Section -->
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:13px;color:#059669;">💳 Save Card to Customer</strong>
+        <button onclick="toggleSubSection('save-card-form')" style="background:#059669;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">Save Card</button>
+      </div>
+      <div id="save-card-form" style="display:none;">
+        <div class="field" style="margin-bottom:8px;">
+          <label style="font-size:11px;">Customer</label>
+          <div style="display:flex;gap:6px;">
+            <div style="flex:1;position:relative;">
+              <input type="text" id="sub-customer-search" placeholder="Search customer..." oninput="searchSubCustomers(this.value)" autocomplete="off" />
+              <div id="sub-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+            </div>
+          </div>
+          <input type="hidden" id="sub-customer-id" />
+          <div id="sub-customer-cards" style="margin-top:6px;display:none;"></div>
+        </div>
+        <div class="field" style="margin-bottom:8px;">
+          <label style="font-size:11px;">Card Details</label>
+          <div id="sub-card-container" style="min-height:50px;"></div>
+        </div>
+        <div id="save-card-result" class="result"></div>
+        <button onclick="saveCardToCustomer()" class="btn btn-primary" style="width:100%;padding:8px;font-size:12px;background:#059669;">Save Card</button>
+      </div>
+    </div>
+
+    <!-- Create Subscription Section -->
+    <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:13px;color:#7c3aed;">🔄 New Subscription</strong>
+        <button onclick="toggleSubSection('new-sub-form')" style="background:#7c3aed;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">+ Create</button>
+      </div>
+      <div id="new-sub-form" style="display:none;">
+        <div class="field" style="margin-bottom:8px;">
+          <label style="font-size:11px;">Customer</label>
+          <div style="position:relative;">
+            <input type="text" id="newsub-customer-search" placeholder="Search customer..." oninput="searchNewSubCustomers(this.value)" autocomplete="off" />
+            <div id="newsub-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+          </div>
+          <input type="hidden" id="newsub-customer-id" />
+          <div id="newsub-customer-cards" style="margin-top:4px;font-size:12px;"></div>
+        </div>
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:2;margin-bottom:6px;">
+            <label style="font-size:11px;">Plan</label>
+            <select id="newsub-plan"></select>
+          </div>
+          <div class="field" style="flex:1;margin-bottom:6px;">
+            <label style="font-size:11px;">Card</label>
+            <select id="newsub-card"><option value="">No card (invoice)</option></select>
+          </div>
+        </div>
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:1;margin-bottom:6px;">
+            <label style="font-size:11px;">Start Date</label>
+            <input type="date" id="newsub-start" />
+          </div>
+          <div class="field" style="flex:1;margin-bottom:6px;">
+            <label style="font-size:11px;">Price Override (optional)</label>
+            <div class="amount-wrap"><span>$</span><input type="number" id="newsub-price" placeholder="Use plan price" step="0.01" min="1" /></div>
+          </div>
+        </div>
+        <div id="newsub-result" class="result"></div>
+        <button onclick="createSubscription()" class="btn btn-primary" style="width:100%;padding:8px;font-size:12px;background:#7c3aed;">Create Subscription</button>
+      </div>
+    </div>
+
+    <!-- Active Subscriptions List -->
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;">
+      <strong style="font-size:13px;color:#111827;">📄 Active Subscriptions</strong>
+      <div id="subscriptions-list" style="margin-top:8px;font-size:12px;color:#6b7280;">Click 🔄 to load</div>
     </div>
   </div>
 
@@ -1168,6 +1291,7 @@ async function switchProfile(id) {
     // Reload payouts/invoices if that tab is open
     if (document.getElementById('panel-payouts').classList.contains('active')) loadPayouts();
     if (document.getElementById('panel-invoices').classList.contains('active')) loadInvoices();
+    if (document.getElementById('panel-subscriptions').classList.contains('active')) loadSubscriptions();
   }
 }
 
@@ -1662,22 +1786,23 @@ function switchTab(tab) {
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
       (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
       (i === 4 && tab === 'payouts') || (i === 5 && tab === 'invoices') ||
-      (i === 6 && tab === 'customers') || (i === 7 && tab === 'report') ||
-      (i === 8 && tab === 'settings')
+      (i === 6 && tab === 'subscriptions') || (i === 7 && tab === 'customers') ||
+      (i === 8 && tab === 'report') || (i === 9 && tab === 'settings')
     );
   });
-  ['manual','link','history','locations','payouts','invoices','customers','report','settings'].forEach(id => {
+  ['manual','link','history','locations','payouts','invoices','subscriptions','customers','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
-  if (tab === 'manual')    initSquare();
-  if (tab === 'link')      loadLinkLocations();
-  if (tab === 'history')   loadHistory();
-  if (tab === 'locations') loadLocations();
-  if (tab === 'payouts')   loadPayouts();
-  if (tab === 'invoices')  loadInvoices();
-  if (tab === 'customers') loadCustomers();
-  if (tab === 'report')    loadReport();
-  if (tab === 'settings')  loadProfiles();
+  if (tab === 'manual')        initSquare();
+  if (tab === 'link')          loadLinkLocations();
+  if (tab === 'history')       loadHistory();
+  if (tab === 'locations')     loadLocations();
+  if (tab === 'payouts')       loadPayouts();
+  if (tab === 'invoices')      loadInvoices();
+  if (tab === 'subscriptions') loadSubscriptions();
+  if (tab === 'customers')     loadCustomers();
+  if (tab === 'report')        loadReport();
+  if (tab === 'settings')      loadProfiles();
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -2366,6 +2491,275 @@ async function loadPayouts(append) {
 
 function loadPayoutsMore() {
   loadPayouts(true);
+}
+
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────────────
+let subCard = null; // separate Web Payments SDK card instance for save-card form
+let subCustomerSearchTimeout = null;
+let newsubCustomerSearchTimeout = null;
+let subPlansCache = [];
+
+function toggleSubSection(id) {
+  const el = document.getElementById(id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  // Init card form when opening save-card section
+  if (id === 'save-card-form' && el.style.display === 'block') initSubCard();
+}
+
+async function initSubCard() {
+  await loadSquareJs();
+  const cfg = await fetch('/api/config').then(r => r.json());
+  if (subCard) { try { await subCard.destroy(); } catch {} }
+  document.getElementById('sub-card-container').innerHTML = '';
+  const payments = Square.payments(cfg.applicationId, cfg.locationId);
+  subCard = await payments.card();
+  await subCard.attach('#sub-card-container');
+}
+
+function searchSubCustomers(query) {
+  clearTimeout(subCustomerSearchTimeout);
+  const results = document.getElementById('sub-customer-results');
+  if (query.length < 2) { results.style.display = 'none'; return; }
+  subCustomerSearchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?search=${encodeURIComponent(query)}`, { credentials: 'include' });
+      const data = await r.json();
+      const customers = data.customers || [];
+      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
+      results.innerHTML = customers.slice(0, 8).map(c => {
+        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+        return `<div onclick="selectSubCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || ''}</span></div>`;
+      }).join('');
+      results.style.display = 'block';
+    } catch (_) { results.style.display = 'none'; }
+  }, 300);
+}
+
+async function selectSubCustomer(id, name) {
+  document.getElementById('sub-customer-id').value = id;
+  document.getElementById('sub-customer-search').value = name;
+  document.getElementById('sub-customer-results').style.display = 'none';
+  // Load saved cards
+  const cardsDiv = document.getElementById('sub-customer-cards');
+  cardsDiv.style.display = 'block';
+  cardsDiv.innerHTML = '<span style="color:#6b7280;">Loading cards...</span>';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards/${id}`, { credentials: 'include' });
+    const data = await r.json();
+    const cards = data.cards || [];
+    if (!cards.length) {
+      cardsDiv.innerHTML = '<span style="color:#f59e0b;font-size:11px;">No saved cards — add one below</span>';
+    } else {
+      cardsDiv.innerHTML = cards.map(c => `<span style="font-size:11px;padding:2px 8px;background:#ecfdf5;border-radius:4px;color:#059669;margin-right:4px;">${c.brand} ****${c.last4} (${c.expMonth}/${c.expYear})</span>`).join('');
+    }
+  } catch (_) { cardsDiv.innerHTML = ''; }
+}
+
+async function saveCardToCustomer() {
+  const result = document.getElementById('save-card-result');
+  const customerId = document.getElementById('sub-customer-id').value;
+  if (!customerId) { showResult(result, 'error', 'Select a customer first'); return; }
+  if (!subCard) { showResult(result, 'error', 'Card form not loaded'); return; }
+  showResult(result, 'info', 'Tokenizing card...');
+  try {
+    const tokenResult = await subCard.tokenize();
+    if (tokenResult.status !== 'OK') { showResult(result, 'error', tokenResult.errors?.[0]?.message || 'Card tokenization failed'); return; }
+    showResult(result, 'info', 'Saving card...');
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ sourceId: tokenResult.token, customerId }),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+    const c = data.card;
+    showResult(result, 'success', `Card saved: ${c.brand} ****${c.last4}`);
+    selectSubCustomer(customerId, document.getElementById('sub-customer-search').value);
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+// New Subscription customer search
+function searchNewSubCustomers(query) {
+  clearTimeout(newsubCustomerSearchTimeout);
+  const results = document.getElementById('newsub-customer-results');
+  if (query.length < 2) { results.style.display = 'none'; return; }
+  newsubCustomerSearchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?search=${encodeURIComponent(query)}`, { credentials: 'include' });
+      const data = await r.json();
+      const customers = data.customers || [];
+      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
+      results.innerHTML = customers.slice(0, 8).map(c => {
+        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+        return `<div onclick="selectNewSubCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || ''}</span></div>`;
+      }).join('');
+      results.style.display = 'block';
+    } catch (_) { results.style.display = 'none'; }
+  }, 300);
+}
+
+async function selectNewSubCustomer(id, name) {
+  document.getElementById('newsub-customer-id').value = id;
+  document.getElementById('newsub-customer-search').value = name;
+  document.getElementById('newsub-customer-results').style.display = 'none';
+  // Load saved cards into select
+  const cardSelect = document.getElementById('newsub-card');
+  const cardsDiv = document.getElementById('newsub-customer-cards');
+  cardSelect.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards/${id}`, { credentials: 'include' });
+    const data = await r.json();
+    const cards = data.cards || [];
+    cardSelect.innerHTML = '<option value="">No card (send invoice)</option>' +
+      cards.map(c => `<option value="${c.id}">${c.brand} ****${c.last4} (${c.expMonth}/${c.expYear})</option>`).join('');
+    cardsDiv.innerHTML = cards.length ? `<span style="font-size:11px;color:#059669;">${cards.length} card(s) on file</span>` : `<span style="font-size:11px;color:#f59e0b;">No cards saved — save one first</span>`;
+  } catch (_) {
+    cardSelect.innerHTML = '<option value="">No card (send invoice)</option>';
+    cardsDiv.innerHTML = '';
+  }
+}
+
+async function createPlan() {
+  const result = document.getElementById('plan-result');
+  const name = document.getElementById('plan-name').value.trim();
+  const amount = document.getElementById('plan-amount').value;
+  const cadence = document.getElementById('plan-cadence').value;
+  if (!name || !amount) { showResult(result, 'error', 'Name and amount required'); return; }
+  showResult(result, 'info', 'Creating plan...');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/plans`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ name, amount: parseFloat(amount), cadence }),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+    showResult(result, 'success', `Plan created: ${data.plan.name}`);
+    document.getElementById('plan-name').value = '';
+    document.getElementById('plan-amount').value = '';
+    loadPlans();
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+async function loadPlans() {
+  const list = document.getElementById('plans-list');
+  const planSelect = document.getElementById('newsub-plan');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/plans`, { credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { list.innerHTML = `<span style="color:#ef4444">${data.error}</span>`; return; }
+    const plans = data.plans || [];
+    subPlansCache = plans;
+    if (!plans.length) {
+      list.innerHTML = '<span>No plans yet. Create one above.</span>';
+      planSelect.innerHTML = '<option value="">No plans available</option>';
+      return;
+    }
+    list.innerHTML = plans.map(p => {
+      const vars = p.variations || [];
+      return vars.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f3f4f6;">
+        <span><strong>${p.name}</strong> — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}</span>
+        <span style="color:#9ca3af;font-size:10px;">${v.id.slice(0, 16)}…</span>
+      </div>`).join('');
+    }).join('');
+    // Populate plan select for new subscription
+    planSelect.innerHTML = plans.flatMap(p => (p.variations || []).map(v =>
+      `<option value="${v.id}">${p.name} — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}</option>`
+    )).join('');
+  } catch (e) { list.innerHTML = `<span style="color:#ef4444">${e.message}</span>`; }
+}
+
+async function createSubscription() {
+  const result = document.getElementById('newsub-result');
+  const customerId = document.getElementById('newsub-customer-id').value;
+  const planVariationId = document.getElementById('newsub-plan').value;
+  const cardId = document.getElementById('newsub-card').value;
+  const startDate = document.getElementById('newsub-start').value;
+  const priceOverride = document.getElementById('newsub-price').value;
+  if (!customerId) { showResult(result, 'error', 'Select a customer'); return; }
+  if (!planVariationId) { showResult(result, 'error', 'Select a plan'); return; }
+  if (!cardId) {
+    if (!confirm('No card selected. Square will send an invoice by email instead of auto-charging. Continue?')) return;
+  }
+  showResult(result, 'info', 'Creating subscription...');
+  try {
+    const body = { customerId, planVariationId };
+    if (cardId) body.cardId = cardId;
+    if (startDate) body.startDate = startDate;
+    if (priceOverride) body.priceOverride = parseFloat(priceOverride);
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+    showResult(result, 'success', `Subscription created! Status: ${data.subscription.status}`);
+    loadSubscriptionsList();
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+async function loadSubscriptionsList() {
+  const list = document.getElementById('subscriptions-list');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions`, { credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { list.innerHTML = `<span style="color:#ef4444">${data.error}</span>`; return; }
+    const subs = data.subscriptions || [];
+    if (!subs.length) { list.innerHTML = '<span>No subscriptions yet.</span>'; return; }
+    const statusColors = { ACTIVE: '#059669', PENDING: '#2563eb', PAUSED: '#f59e0b', CANCELED: '#ef4444', DEACTIVATED: '#6b7280' };
+    list.innerHTML = subs.map(s => {
+      const color = statusColors[s.status] || '#6b7280';
+      const actions = [];
+      if (s.status === 'ACTIVE') actions.push(`<button onclick="pauseSubscription('${s.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Pause</button>`);
+      if (s.status === 'PAUSED') actions.push(`<button onclick="resumeSubscription('${s.id}')" style="background:#ecfdf5;color:#059669;border:1px solid #bbf7d0;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Resume</button>`);
+      if (['ACTIVE','PAUSED','PENDING'].includes(s.status)) actions.push(`<button onclick="cancelSubscription('${s.id}')" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Cancel</button>`);
+      return `<div style="padding:8px 0;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <span style="font-weight:600;">Customer: ${s.customerId.slice(0, 12)}…</span>
+          <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;margin-left:6px;">${s.status}</span>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px;">
+            Start: ${s.startDate || '—'} · Charged through: ${s.chargedThroughDate || '—'}
+            ${s.priceOverride ? ' · Override: $' + s.priceOverride : ''}
+            ${s.cardId ? ' · 💳 Card on file' : ' · 📧 Invoice'}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;">${actions.join('')}</div>
+      </div>`;
+    }).join('');
+  } catch (e) { list.innerHTML = `<span style="color:#ef4444">${e.message}</span>`; }
+}
+
+async function pauseSubscription(id) {
+  if (!confirm('Pause this subscription?')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/pause`, { method: 'POST', credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    loadSubscriptionsList();
+  } catch (e) { alert(e.message); }
+}
+
+async function resumeSubscription(id) {
+  if (!confirm('Resume this subscription?')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/resume`, { method: 'POST', credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    loadSubscriptionsList();
+  } catch (e) { alert(e.message); }
+}
+
+async function cancelSubscription(id) {
+  if (!confirm('Cancel this subscription? This cannot be undone.')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/cancel`, { method: 'POST', credentials: 'include' });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    loadSubscriptionsList();
+  } catch (e) { alert(e.message); }
+}
+
+async function loadSubscriptions() {
+  await Promise.all([loadPlans(), loadSubscriptionsList()]);
 }
 
 

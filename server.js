@@ -1459,6 +1459,203 @@ app.put('/api/profiles/:id/invoices/:invoiceId', requireAuth, async (req, res) =
   res.json({ invoice: r.body.invoice });
 });
 
+// ── Cards on File ─────────────────────────────────────────────────────────────
+
+// Save card to customer
+app.post('/api/profiles/:id/cards', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { sourceId, customerId } = req.body;
+  if (!sourceId || !customerId) return res.status(400).json({ error: 'sourceId and customerId required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, '/v2/cards', {
+    source_id: sourceId, customer_id: customerId,
+    idempotency_key: crypto.randomUUID(),
+  });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to save card' });
+  const c = r.body.card;
+  res.json({ card: { id: c.id, brand: c.card_brand, last4: c.last_4, expMonth: c.exp_month, expYear: c.exp_year, cardType: c.card_type } });
+});
+
+// List customer's saved cards
+app.get('/api/profiles/:id/cards/:customerId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squareGet(accessToken, `/v2/cards?customer_id=${req.params.customerId}`);
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  const cards = (r.body.cards || []).filter(c => c.enabled).map(c => ({
+    id: c.id, brand: c.card_brand, last4: c.last_4, expMonth: c.exp_month, expYear: c.exp_year, cardType: c.card_type,
+  }));
+  res.json({ cards });
+});
+
+// Disable (remove) saved card
+app.delete('/api/profiles/:id/cards/:cardId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squareRequest('PUT', accessToken, `/v2/cards/${req.params.cardId}/disable`, {});
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ success: true });
+});
+
+// ── Subscription Plans ────────────────────────────────────────────────────────
+
+// Create subscription plan (catalog item + variation)
+app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { name, cadence, amount, currency } = req.body;
+  if (!name || !cadence || !amount) return res.status(400).json({ error: 'name, cadence, and amount required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const planId = '#plan_' + Date.now();
+  const varId = '#var_' + Date.now();
+  const r = await squarePost(accessToken, '/v2/catalog/upsert', {
+    idempotency_key: crypto.randomUUID(),
+    object: {
+      type: 'SUBSCRIPTION_PLAN',
+      id: planId,
+      subscription_plan_data: {
+        name,
+        subscription_plan_variations: [{
+          type: 'SUBSCRIPTION_PLAN_VARIATION',
+          id: varId,
+          subscription_plan_variation_data: {
+            name: `${name} — ${cadence}`,
+            phases: [{
+              cadence,
+              periods: null,
+              pricing: {
+                type: 'STATIC',
+                price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' },
+              },
+            }],
+          },
+        }],
+      },
+    },
+  });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create plan' });
+  const obj = r.body.catalog_object;
+  const variation = obj?.subscription_plan_data?.subscription_plan_variations?.[0];
+  res.json({
+    plan: {
+      id: obj.id, name: obj.subscription_plan_data?.name,
+      variationId: variation?.id || null,
+      cadence, amount,
+    },
+  });
+});
+
+// List subscription plans
+app.get('/api/profiles/:id/plans', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, '/v2/catalog/search', {
+    object_types: ['SUBSCRIPTION_PLAN'],
+    include_related_objects: true,
+  });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  const related = r.body.related_objects || [];
+  const plans = (r.body.objects || []).map(obj => {
+    const variations = (obj.subscription_plan_data?.subscription_plan_variations || []).map(v => {
+      // Try to find full variation in related_objects
+      const full = related.find(r => r.id === v.id) || v;
+      const phase = full.subscription_plan_variation_data?.phases?.[0];
+      return {
+        id: full.id,
+        name: full.subscription_plan_variation_data?.name || '',
+        cadence: phase?.cadence || '',
+        amount: phase?.pricing?.price_money ? (Number(phase.pricing.price_money.amount) / 100).toFixed(2) : '0.00',
+        currency: phase?.pricing?.price_money?.currency || 'USD',
+      };
+    });
+    return { id: obj.id, name: obj.subscription_plan_data?.name || '', variations };
+  });
+  res.json({ plans });
+});
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+// Create subscription
+app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { customerId, planVariationId, cardId, startDate, priceOverride } = req.body;
+  if (!customerId || !planVariationId) return res.status(400).json({ error: 'customerId and planVariationId required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const body = {
+    idempotency_key: crypto.randomUUID(),
+    location_id: profile.location_id,
+    customer_id: customerId,
+    plan_variation_id: planVariationId,
+  };
+  if (cardId) body.card_id = cardId;
+  if (startDate) body.start_date = startDate;
+  if (priceOverride) body.price_override_money = { amount: Math.round(parseFloat(priceOverride) * 100), currency: 'USD' };
+  const r = await squarePost(accessToken, '/v2/subscriptions', body);
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription' });
+  res.json({ subscription: r.body.subscription });
+});
+
+// List/search subscriptions
+app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, '/v2/subscriptions/search', {
+    query: { filter: { location_ids: [profile.location_id] } },
+  });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  const subs = (r.body.subscriptions || []).map(s => ({
+    id: s.id, status: s.status, customerId: s.customer_id, cardId: s.card_id,
+    planVariationId: s.plan_variation_id, startDate: s.start_date,
+    chargedThroughDate: s.charged_through_date,
+    canceledDate: s.canceled_date, createdAt: s.created_at,
+    priceOverride: s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : null,
+  }));
+  res.json({ subscriptions: subs });
+});
+
+// Pause subscription
+app.post('/api/profiles/:id/subscriptions/:subId/pause', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/subscriptions/${req.params.subId}/pause`, {}));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ subscription: r.body.subscription });
+});
+
+// Resume subscription
+app.post('/api/profiles/:id/subscriptions/:subId/resume', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/subscriptions/${req.params.subId}/resume`, {}));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ subscription: r.body.subscription });
+});
+
+// Cancel subscription
+app.post('/api/profiles/:id/subscriptions/:subId/cancel', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/subscriptions/${req.params.subId}/cancel`, {}));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ subscription: r.body.subscription });
+});
+
 // Charge
 app.post('/api/charge', requireAuth, async (req, res) => {
   const { sourceId, amount, currency, note, buyerEmail, verificationToken } = req.body;
