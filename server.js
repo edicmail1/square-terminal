@@ -1516,7 +1516,7 @@ app.delete('/api/profiles/:id/cards/:cardId', requireAuth, async (req, res) => {
 
 // ── Subscription Plans ────────────────────────────────────────────────────────
 
-// Create subscription plan (catalog item + variation)
+// Create subscription plan (2 steps: plan → variation)
 app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
@@ -1524,41 +1524,41 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   if (!name || !cadence || !amount) return res.status(400).json({ error: 'name, cadence, and amount required' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
-  const planId = '#plan_' + Date.now();
-  const varId = '#var_' + Date.now();
   const periodsInt = periods ? parseInt(periods) : null;
-  const r = await squarePost(accessToken, '/v2/catalog/upsert', {
+
+  // Step 1: Create the subscription plan
+  const planRes = await squarePost(accessToken, '/v2/catalog/upsert', {
     idempotency_key: crypto.randomUUID(),
     object: {
       type: 'SUBSCRIPTION_PLAN',
-      id: planId,
-      subscription_plan_data: {
-        name,
-        subscription_plan_variations: [{
-          type: 'SUBSCRIPTION_PLAN_VARIATION',
-          id: varId,
-          subscription_plan_variation_data: {
-            name: `${name} — ${cadence}${periodsInt ? ' ×' + periodsInt : ''}`,
-            phases: [{
-              cadence,
-              periods: periodsInt,
-              pricing: {
-                type: 'STATIC',
-                price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' },
-              },
-            }],
-          },
-        }],
+      id: '#plan_' + Date.now(),
+      subscription_plan_data: { name },
+    },
+  });
+  if (planRes.status !== 200) return res.status(planRes.status).json({ error: planRes.body?.errors?.[0]?.detail || 'Failed to create plan' });
+  const realPlanId = planRes.body.catalog_object.id;
+
+  // Step 2: Create the variation linked to the plan
+  const phase = { cadence, ordinal: 0, pricing: { type: 'STATIC', price: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' } } };
+  if (periodsInt) phase.periods = periodsInt;
+  const varRes = await squarePost(accessToken, '/v2/catalog/upsert', {
+    idempotency_key: crypto.randomUUID(),
+    object: {
+      type: 'SUBSCRIPTION_PLAN_VARIATION',
+      id: '#var_' + Date.now(),
+      subscription_plan_variation_data: {
+        name: `${name} — ${cadence.toLowerCase().replace(/_/g, ' ')}${periodsInt ? ' ×' + periodsInt : ''}`,
+        subscription_plan_id: realPlanId,
+        phases: [phase],
       },
     },
   });
-  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create plan' });
-  const obj = r.body.catalog_object;
-  const variation = obj?.subscription_plan_data?.subscription_plan_variations?.[0];
+  if (varRes.status !== 200) return res.status(varRes.status).json({ error: varRes.body?.errors?.[0]?.detail || 'Failed to create variation' });
+
   res.json({
     plan: {
-      id: obj.id, name: obj.subscription_plan_data?.name,
-      variationId: variation?.id || null,
+      id: realPlanId, name,
+      variationId: varRes.body.catalog_object.id,
       cadence, amount,
     },
   });

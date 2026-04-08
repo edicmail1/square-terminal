@@ -683,33 +683,6 @@
       <div id="plans-list" style="font-size:12px;color:#6b7280;">Loading...</div>
     </div>
 
-    <!-- Save Card Section -->
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <strong style="font-size:13px;color:#059669;">💳 Save Card to Customer</strong>
-        <button onclick="toggleSubSection('save-card-form')" style="background:#059669;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">Save Card</button>
-      </div>
-      <div id="save-card-form" style="display:none;">
-        <div class="field" style="margin-bottom:8px;">
-          <label style="font-size:11px;">Customer</label>
-          <div style="display:flex;gap:6px;">
-            <div style="flex:1;position:relative;">
-              <input type="text" id="sub-customer-search" placeholder="Search customer..." oninput="searchSubCustomers(this.value)" autocomplete="off" />
-              <div id="sub-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
-            </div>
-          </div>
-          <input type="hidden" id="sub-customer-id" />
-          <div id="sub-customer-cards" style="margin-top:6px;display:none;"></div>
-        </div>
-        <div class="field" style="margin-bottom:8px;">
-          <label style="font-size:11px;">Card Details</label>
-          <div id="sub-card-container" style="min-height:50px;"></div>
-        </div>
-        <div id="save-card-result" class="result"></div>
-        <button onclick="saveCardToCustomer()" class="btn btn-primary" style="width:100%;padding:8px;font-size:12px;background:#059669;">Save Card</button>
-      </div>
-    </div>
-
     <!-- Create Subscription Section -->
     <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:14px;margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -761,7 +734,50 @@
   <div class="panel" id="panel-customers">
   <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
     <input type="text" id="cust-search" placeholder="Search name, email, phone..." style="flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" oninput="debouncedCustomerSearch()" />
+    <button onclick="toggleCustAddForm()" style="background:#059669;color:white;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>
     <button onclick="loadCustomers()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">🔄</button>
+  </div>
+  <!-- Add Customer Form -->
+  <div id="cust-add-form" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;margin-bottom:12px;">
+    <div style="font-size:13px;font-weight:700;color:#059669;margin-bottom:8px;">New Customer</div>
+    <div class="field" style="margin-bottom:8px;">
+      <label style="font-size:12px;">Quick Paste <span style="color:#9ca3af;font-weight:400;">(all info in one line)</span></label>
+      <input type="text" id="cust-quick" placeholder="John Smith 123 Main St New York NY 10001 john@email.com 212-555-1234" oninput="parseCustLine(this.value)" />
+    </div>
+    <div class="row" style="gap:6px;">
+      <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">First Name</label><input type="text" id="cust-first" placeholder="John" /></div>
+      <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Last Name</label><input type="text" id="cust-last" placeholder="Smith" /></div>
+    </div>
+    <div class="field" style="margin-bottom:6px;"><label style="font-size:11px;">Address</label><input type="text" id="cust-address" placeholder="123 Main St" /></div>
+    <div class="row" style="gap:6px;">
+      <div class="field" style="flex:2;margin-bottom:6px;"><label style="font-size:11px;">City</label><input type="text" id="cust-city" placeholder="New York" /></div>
+      <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">State</label><input type="text" id="cust-state" placeholder="NY" maxlength="2" style="text-transform:uppercase;" /></div>
+      <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">ZIP</label><input type="text" id="cust-zip" placeholder="10001" maxlength="10" /></div>
+    </div>
+    <div class="row" style="gap:6px;">
+      <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Email</label><input type="email" id="cust-email" placeholder="john@email.com" /></div>
+      <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Phone</label><input type="text" id="cust-phone" placeholder="212-555-1234" /></div>
+    </div>
+    <div id="cust-add-result" class="result"></div>
+    <div style="display:flex;gap:6px;">
+      <button onclick="saveCustFromForm()" class="btn btn-primary" style="flex:1;padding:8px;font-size:12px;background:#059669;">Save Customer</button>
+      <button onclick="toggleCustAddForm()" class="btn btn-sm" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:8px 12px;font-size:12px;">Cancel</button>
+    </div>
+  </div>
+  <!-- Attach Card Form (shown per customer) -->
+  <div id="cust-attach-card" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <strong style="font-size:13px;color:#2563eb;">💳 Attach Card to <span id="cust-card-name">Customer</span></strong>
+      <button onclick="closeCustAttachCard()" style="background:none;border:none;font-size:16px;cursor:pointer;color:#6b7280;">✕</button>
+    </div>
+    <input type="hidden" id="cust-card-customer-id" />
+    <div id="cust-card-existing" style="margin-bottom:8px;font-size:12px;"></div>
+    <div class="field" style="margin-bottom:8px;">
+      <label style="font-size:11px;">Card Details</label>
+      <div id="cust-card-container" style="min-height:50px;"></div>
+    </div>
+    <div id="cust-card-result" class="result"></div>
+    <button onclick="attachCardToCustomer()" class="btn btn-primary" style="width:100%;padding:8px;font-size:12px;background:#2563eb;">Attach Card</button>
   </div>
   <div id="customers-list"><p style="color:#6b7280;font-size:14px;text-align:center;padding:30px 0">Loading...</p></div>
   <div id="customers-load-more" style="display:none;margin-top:10px">
@@ -2615,79 +2631,6 @@ let subPlansCache = [];
 function toggleSubSection(id) {
   const el = document.getElementById(id);
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
-  // Init card form when opening save-card section
-  if (id === 'save-card-form' && el.style.display === 'block') initSubCard();
-}
-
-async function initSubCard() {
-  await loadSquareJs();
-  const cfg = await fetch('/api/config').then(r => r.json());
-  if (subCard) { try { await subCard.destroy(); } catch {} }
-  document.getElementById('sub-card-container').innerHTML = '';
-  const payments = Square.payments(cfg.applicationId, cfg.locationId);
-  subCard = await payments.card();
-  await subCard.attach('#sub-card-container');
-}
-
-function searchSubCustomers(query) {
-  clearTimeout(subCustomerSearchTimeout);
-  const results = document.getElementById('sub-customer-results');
-  if (query.length < 2) { results.style.display = 'none'; return; }
-  subCustomerSearchTimeout = setTimeout(async () => {
-    try {
-      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?search=${encodeURIComponent(query)}`, { credentials: 'include' });
-      const data = await r.json();
-      const customers = data.customers || [];
-      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
-      results.innerHTML = customers.slice(0, 8).map(c => {
-        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
-        return `<div onclick="selectSubCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || ''}</span></div>`;
-      }).join('');
-      results.style.display = 'block';
-    } catch (_) { results.style.display = 'none'; }
-  }, 300);
-}
-
-async function selectSubCustomer(id, name) {
-  document.getElementById('sub-customer-id').value = id;
-  document.getElementById('sub-customer-search').value = name;
-  document.getElementById('sub-customer-results').style.display = 'none';
-  // Load saved cards
-  const cardsDiv = document.getElementById('sub-customer-cards');
-  cardsDiv.style.display = 'block';
-  cardsDiv.innerHTML = '<span style="color:#6b7280;">Loading cards...</span>';
-  try {
-    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards/${id}`, { credentials: 'include' });
-    const data = await r.json();
-    const cards = data.cards || [];
-    if (!cards.length) {
-      cardsDiv.innerHTML = '<span style="color:#f59e0b;font-size:11px;">No saved cards — add one below</span>';
-    } else {
-      cardsDiv.innerHTML = cards.map(c => `<span style="font-size:11px;padding:2px 8px;background:#ecfdf5;border-radius:4px;color:#059669;margin-right:4px;">${c.brand} ****${c.last4} (${c.expMonth}/${c.expYear})</span>`).join('');
-    }
-  } catch (_) { cardsDiv.innerHTML = ''; }
-}
-
-async function saveCardToCustomer() {
-  const result = document.getElementById('save-card-result');
-  const customerId = document.getElementById('sub-customer-id').value;
-  if (!customerId) { showResult(result, 'error', 'Select a customer first'); return; }
-  if (!subCard) { showResult(result, 'error', 'Card form not loaded'); return; }
-  showResult(result, 'info', 'Tokenizing card...');
-  try {
-    const tokenResult = await subCard.tokenize();
-    if (tokenResult.status !== 'OK') { showResult(result, 'error', tokenResult.errors?.[0]?.message || 'Card tokenization failed'); return; }
-    showResult(result, 'info', 'Saving card...');
-    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ sourceId: tokenResult.token, customerId }),
-    });
-    const data = await r.json();
-    if (data.error) { showResult(result, 'error', data.error); return; }
-    const c = data.card;
-    showResult(result, 'success', `Card saved: ${c.brand} ****${c.last4}`);
-    selectSubCustomer(customerId, document.getElementById('sub-customer-search').value);
-  } catch (e) { showResult(result, 'error', e.message); }
 }
 
 // New Subscription customer search
@@ -2914,90 +2857,50 @@ function toggleNewCustomerForm() {
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
 
-function parseCustomerLine(line) {
-  if (!line.trim()) return;
-  let first = '', last = '', email = '', phone = '', address = '', city = '', state = '', zip = '';
-
-  // Extract email
+// Shared parser — returns object, used by both Invoice and Customers forms
+function parseAddressLine(line) {
+  const r = { first: '', last: '', email: '', phone: '', address: '', city: '', state: '', zip: '' };
+  if (!line || !line.trim()) return r;
   const emailMatch = line.match(/[\w.+-]+@[\w.-]+\.\w{2,}/);
-  if (emailMatch) { email = emailMatch[0]; line = line.replace(email, ' '); }
-
-  // Extract phone (various formats)
+  if (emailMatch) { r.email = emailMatch[0]; line = line.replace(r.email, ' '); }
   const phoneMatch = line.match(/\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
-  if (phoneMatch) { phone = phoneMatch[0].trim(); line = line.replace(phoneMatch[0], ' '); }
-
-  // Extract ZIP (5 digits, optionally -4)
+  if (phoneMatch) { r.phone = phoneMatch[0].trim(); line = line.replace(phoneMatch[0], ' '); }
   const zipMatch = line.match(/\b(\d{5}(?:-\d{4})?)\b/);
-  if (zipMatch) { zip = zipMatch[1]; line = line.replace(zipMatch[0], ' '); }
-
-  // Extract state (2-letter code)
+  if (zipMatch) { r.zip = zipMatch[1]; line = line.replace(zipMatch[0], ' '); }
   const tokens = line.trim().split(/[\s,]+/).filter(Boolean);
   let stateIdx = -1;
   for (let i = tokens.length - 1; i >= 0; i--) {
-    if (US_STATES.includes(tokens[i].toUpperCase()) && tokens[i].length === 2) {
-      state = tokens[i].toUpperCase();
-      stateIdx = i;
-      tokens.splice(i, 1);
-      break;
-    }
+    if (US_STATES.includes(tokens[i].toUpperCase()) && tokens[i].length === 2) { r.state = tokens[i].toUpperCase(); stateIdx = i; tokens.splice(i, 1); break; }
   }
-
-  // Extract address (starts with number)
   let addrStart = -1;
-  for (let i = 0; i < tokens.length; i++) {
-    if (/^\d+$/.test(tokens[i]) && i < tokens.length - 1) { addrStart = i; break; }
-  }
-
+  for (let i = 0; i < tokens.length; i++) { if (/^\d+$/.test(tokens[i]) && i < tokens.length - 1) { addrStart = i; break; } }
   if (addrStart >= 0) {
-    // Name = everything before address
     const nameParts = tokens.slice(0, addrStart);
-    first = nameParts[0] || '';
-    last = nameParts.slice(1).join(' ');
-
-    // Find where address ends and city begins
-    // Heuristic: address is from number to the word before state was, or last 1-2 words are city
+    r.first = nameParts[0] || ''; r.last = nameParts.slice(1).join(' ');
     const afterName = tokens.slice(addrStart);
-    if (stateIdx >= 0) {
-      // State was found — city is likely 1-2 words before where state was
-      // Simple approach: last 1-2 words of remaining are city, rest is address
-      if (afterName.length >= 3) {
-        // Try to find common street suffixes to split address from city
-        const streetSuffixes = ['St','Street','Ave','Avenue','Blvd','Boulevard','Dr','Drive','Rd','Road','Ln','Lane','Ct','Court','Way','Pl','Place','Cir','Circle','Pkwy','Parkway','Ter','Terrace'];
-        let splitAt = -1;
-        for (let i = 0; i < afterName.length; i++) {
-          if (streetSuffixes.some(s => afterName[i].toLowerCase() === s.toLowerCase())) { splitAt = i; break; }
-        }
-        if (splitAt >= 0 && splitAt < afterName.length - 1) {
-          address = afterName.slice(0, splitAt + 1).join(' ');
-          city = afterName.slice(splitAt + 1).join(' ');
-        } else {
-          // Fallback: last word(s) are city
-          address = afterName.slice(0, -1).join(' ');
-          city = afterName[afterName.length - 1] || '';
-        }
-      } else if (afterName.length === 2) {
-        address = afterName[0];
-        city = afterName[1];
-      } else {
-        address = afterName.join(' ');
-      }
-    } else {
-      address = afterName.join(' ');
-    }
-  } else {
-    // No address number found — just name
-    first = tokens[0] || '';
-    last = tokens.slice(1).join(' ');
-  }
+    if (stateIdx >= 0 && afterName.length >= 3) {
+      const streetSuffixes = ['St','Street','Ave','Avenue','Blvd','Boulevard','Dr','Drive','Rd','Road','Ln','Lane','Ct','Court','Way','Pl','Place','Cir','Circle','Pkwy','Parkway','Ter','Terrace'];
+      let splitAt = -1;
+      for (let i = 0; i < afterName.length; i++) { if (streetSuffixes.some(s => afterName[i].toLowerCase() === s.toLowerCase())) { splitAt = i; break; } }
+      if (splitAt >= 0 && splitAt < afterName.length - 1) { r.address = afterName.slice(0, splitAt + 1).join(' '); r.city = afterName.slice(splitAt + 1).join(' '); }
+      else { r.address = afterName.slice(0, -1).join(' '); r.city = afterName[afterName.length - 1] || ''; }
+    } else if (afterName.length === 2) { r.address = afterName[0]; r.city = afterName[1]; }
+    else { r.address = afterName.join(' '); }
+  } else { r.first = tokens[0] || ''; r.last = tokens.slice(1).join(' '); }
+  return r;
+}
 
-  document.getElementById('nc-first').value = first;
-  document.getElementById('nc-last').value = last;
-  document.getElementById('nc-email').value = email;
-  document.getElementById('nc-phone').value = phone;
-  document.getElementById('nc-address').value = address;
-  document.getElementById('nc-city').value = city;
-  document.getElementById('nc-state').value = state;
-  document.getElementById('nc-zip').value = zip;
+// Invoice form parser (writes to nc-* fields)
+function parseCustomerLine(line) {
+  const p = parseAddressLine(line);
+  document.getElementById('nc-first').value = p.first;
+  document.getElementById('nc-last').value = p.last;
+  document.getElementById('nc-email').value = p.email;
+  document.getElementById('nc-phone').value = p.phone;
+  document.getElementById('nc-address').value = p.address;
+  document.getElementById('nc-city').value = p.city;
+  document.getElementById('nc-state').value = p.state;
+  document.getElementById('nc-zip').value = p.zip;
 }
 
 async function saveNewCustomer() {
@@ -3236,6 +3139,105 @@ async function deleteInvoice(id, version) {
 }
 
 
+// ── Customers: Add Customer + Attach Card ─────────────────────────────────────────────
+let custCard = null; // Web Payments SDK instance for attach card
+
+function toggleCustAddForm() {
+  const f = document.getElementById('cust-add-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+function parseCustLine(line) {
+  // Parse and write directly to cust-* fields
+  const parsed = parseAddressLine(line);
+  document.getElementById('cust-first').value = parsed.first;
+  document.getElementById('cust-last').value = parsed.last;
+  document.getElementById('cust-email').value = parsed.email;
+  document.getElementById('cust-phone').value = parsed.phone;
+  document.getElementById('cust-address').value = parsed.address;
+  document.getElementById('cust-city').value = parsed.city;
+  document.getElementById('cust-state').value = parsed.state;
+  document.getElementById('cust-zip').value = parsed.zip;
+}
+
+async function saveCustFromForm() {
+  const result = document.getElementById('cust-add-result');
+  const body = {
+    givenName: document.getElementById('cust-first').value.trim(),
+    familyName: document.getElementById('cust-last').value.trim(),
+    emailAddress: document.getElementById('cust-email').value.trim(),
+    phoneNumber: document.getElementById('cust-phone').value.trim(),
+    addressLine1: document.getElementById('cust-address').value.trim(),
+    locality: document.getElementById('cust-city').value.trim(),
+    state: document.getElementById('cust-state').value.trim().toUpperCase(),
+    postalCode: document.getElementById('cust-zip').value.trim(),
+  };
+  if (!body.givenName && !body.familyName && !body.emailAddress) { showResult(result, 'error', 'Enter at least a name or email'); return; }
+  showResult(result, 'info', 'Creating customer...');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+    const c = data.customer;
+    showResult(result, 'success', `Customer created: ${[c.givenName, c.familyName].filter(Boolean).join(' ')}`);
+    setTimeout(() => { toggleCustAddForm(); loadCustomers(); }, 1000);
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+async function openAttachCard(customerId, customerName) {
+  const form = document.getElementById('cust-attach-card');
+  document.getElementById('cust-card-customer-id').value = customerId;
+  document.getElementById('cust-card-name').textContent = customerName;
+  form.style.display = 'block';
+  // Load existing cards
+  const existingDiv = document.getElementById('cust-card-existing');
+  existingDiv.innerHTML = 'Loading cards...';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards/${customerId}`, { credentials: 'include' });
+    const data = await r.json();
+    const cards = data.cards || [];
+    existingDiv.innerHTML = cards.length
+      ? '<strong style="font-size:11px;">Existing cards:</strong> ' + cards.map(c => `<span style="font-size:11px;padding:2px 6px;background:#ecfdf5;border-radius:4px;color:#059669;margin-right:4px;">${c.brand} ****${c.last4}</span>`).join('')
+      : '<span style="font-size:11px;color:#f59e0b;">No cards saved yet</span>';
+  } catch (_) { existingDiv.innerHTML = ''; }
+  // Init card form
+  await loadSquareJs();
+  const cfg = await fetch('/api/config').then(r => r.json());
+  if (custCard) { try { await custCard.destroy(); } catch {} }
+  document.getElementById('cust-card-container').innerHTML = '';
+  const payments = Square.payments(cfg.applicationId, cfg.locationId);
+  custCard = await payments.card();
+  await custCard.attach('#cust-card-container');
+}
+
+function closeCustAttachCard() {
+  document.getElementById('cust-attach-card').style.display = 'none';
+  if (custCard) { try { custCard.destroy(); } catch {} custCard = null; }
+}
+
+async function attachCardToCustomer() {
+  const result = document.getElementById('cust-card-result');
+  const customerId = document.getElementById('cust-card-customer-id').value;
+  if (!custCard) { showResult(result, 'error', 'Card form not loaded'); return; }
+  showResult(result, 'info', 'Tokenizing card...');
+  try {
+    const tokenResult = await custCard.tokenize();
+    if (tokenResult.status !== 'OK') { showResult(result, 'error', tokenResult.errors?.[0]?.message || 'Tokenization failed'); return; }
+    showResult(result, 'info', 'Saving card...');
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ sourceId: tokenResult.token, customerId }),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+    showResult(result, 'success', `Card saved: ${data.card.brand} ****${data.card.last4}`);
+    openAttachCard(customerId, document.getElementById('cust-card-name').textContent); // refresh cards list
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+
 // ── Customers ─────────────────────────────────────────────────────────────────────────
 let customersCursor = null;
 let segmentsCache = {};
@@ -3290,6 +3292,9 @@ async function fetchCustomers(append) {
         '<div style="font-size:10px;color:#9ca3af">' + new Date(c.createdAt).toLocaleDateString('ru-RU') + '</div>' +
         '<div style="font-size:10px;color:#9ca3af;margin-top:2px">' + c.source + '</div></div></div>' +
         (segs.length ? '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;padding:2px 7px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
+        '<div style="margin-top:6px;display:flex;gap:4px;">' +
+        '<button onclick="event.stopPropagation();openAttachCard(\'' + c.id + '\',\'' + name.replace(/'/g, "\\'") + '\')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">💳 Attach Card</button>' +
+        '</div>' +
         '</div>';
     }).join('');
     const el = document.getElementById('customers-list');
