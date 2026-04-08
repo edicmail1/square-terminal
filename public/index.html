@@ -2681,6 +2681,7 @@ async function createPlan() {
   const cadence = document.getElementById('plan-cadence').value;
   const periods = document.getElementById('plan-periods').value;
   if (!name || !amount) { showResult(result, 'error', 'Name and amount required'); return; }
+  if (!profilesData?.activeId) { showResult(result, 'error', 'No active profile selected'); return; }
   showResult(result, 'info', 'Creating plan...');
   try {
     const body = { name, amount: parseFloat(amount), cadence };
@@ -2689,6 +2690,8 @@ async function createPlan() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify(body),
     });
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) { showResult(result, 'error', `Server error (HTTP ${r.status}). Try refreshing the page.`); return; }
     const data = await r.json();
     if (data.error) { showResult(result, 'error', data.error + (data.debug ? '<br><pre style="font-size:10px;max-height:100px;overflow:auto;margin-top:4px">' + JSON.stringify(data.debug, null, 2) + '</pre>' : '')); return; }
     showResult(result, 'success', `Plan created: ${data.plan.name}`);
