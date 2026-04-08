@@ -1527,24 +1527,25 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   _currentProxy = profile.proxy_url || '';
   const periodsInt = periods ? parseInt(periods) : null;
 
-  // Step 1: Create the subscription plan
-  const planRes = await squarePost(accessToken, '/v2/catalog/upsert', {
+  // Step 1: Create the subscription plan via batch-upsert
+  const planRes = await squarePost(accessToken, '/v2/catalog/batch-upsert', {
     idempotency_key: crypto.randomUUID(),
-    object: {
+    batches: [{ objects: [{
       type: 'SUBSCRIPTION_PLAN',
       id: '#plan_' + Date.now(),
-      subscription_plan_data: { name },
-    },
+      subscription_plan_data: { name, all_items: true },
+    }] }],
   });
   if (planRes.status !== 200) return res.status(planRes.status).json({ error: planRes.body?.errors?.[0]?.detail || 'Failed to create plan', debug: planRes.body });
-  const realPlanId = planRes.body.catalog_object.id;
+  const realPlanId = planRes.body.objects?.[0]?.id;
+  if (!realPlanId) return res.status(500).json({ error: 'Plan created but no ID returned', debug: planRes.body });
 
-  // Step 2: Create the variation linked to the plan
+  // Step 2: Create the variation linked to the plan via batch-upsert
   const phase = { cadence, ordinal: 0, pricing: { type: 'STATIC', price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' } } };
   if (periodsInt) phase.periods = periodsInt;
-  const varRes = await squarePost(accessToken, '/v2/catalog/upsert', {
+  const varRes = await squarePost(accessToken, '/v2/catalog/batch-upsert', {
     idempotency_key: crypto.randomUUID(),
-    object: {
+    batches: [{ objects: [{
       type: 'SUBSCRIPTION_PLAN_VARIATION',
       id: '#var_' + Date.now(),
       subscription_plan_variation_data: {
@@ -1552,14 +1553,14 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
         subscription_plan_id: realPlanId,
         phases: [phase],
       },
-    },
+    }] }],
   });
   if (varRes.status !== 200) return res.status(varRes.status).json({ error: varRes.body?.errors?.[0]?.detail || 'Failed to create variation', debug: varRes.body });
 
   res.json({
     plan: {
       id: realPlanId, name,
-      variationId: varRes.body.catalog_object.id,
+      variationId: varRes.body.objects?.[0]?.id || null,
       cadence, amount,
     },
   });
