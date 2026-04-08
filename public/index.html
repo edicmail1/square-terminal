@@ -2690,7 +2690,7 @@ async function createPlan() {
       body: JSON.stringify(body),
     });
     const data = await r.json();
-    if (data.error) { showResult(result, 'error', data.error); return; }
+    if (data.error) { showResult(result, 'error', data.error + (data.debug ? '<br><pre style="font-size:10px;max-height:100px;overflow:auto;margin-top:4px">' + JSON.stringify(data.debug, null, 2) + '</pre>' : '')); return; }
     showResult(result, 'success', `Plan created: ${data.plan.name}`);
     document.getElementById('plan-name').value = '';
     document.getElementById('plan-amount').value = '';

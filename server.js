@@ -1536,11 +1536,11 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
       subscription_plan_data: { name },
     },
   });
-  if (planRes.status !== 200) return res.status(planRes.status).json({ error: planRes.body?.errors?.[0]?.detail || 'Failed to create plan' });
+  if (planRes.status !== 200) return res.status(planRes.status).json({ error: planRes.body?.errors?.[0]?.detail || 'Failed to create plan', debug: planRes.body });
   const realPlanId = planRes.body.catalog_object.id;
 
   // Step 2: Create the variation linked to the plan
-  const phase = { cadence, ordinal: 0, pricing: { type: 'STATIC', price: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' } } };
+  const phase = { cadence, ordinal: 0, pricing: { type: 'STATIC', price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' } } };
   if (periodsInt) phase.periods = periodsInt;
   const varRes = await squarePost(accessToken, '/v2/catalog/upsert', {
     idempotency_key: crypto.randomUUID(),
@@ -1554,7 +1554,7 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
       },
     },
   });
-  if (varRes.status !== 200) return res.status(varRes.status).json({ error: varRes.body?.errors?.[0]?.detail || 'Failed to create variation' });
+  if (varRes.status !== 200) return res.status(varRes.status).json({ error: varRes.body?.errors?.[0]?.detail || 'Failed to create variation', debug: varRes.body });
 
   res.json({
     plan: {
