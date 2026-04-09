@@ -2742,6 +2742,25 @@ let subPlansCache = [];
 function toggleSubSection(id) {
   const el = document.getElementById(id);
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  if (el.style.display === 'block') {
+    // Clear fields when opening
+    if (id === 'plan-form') {
+      document.getElementById('plan-name').value = '';
+      document.getElementById('plan-amount').value = '';
+      document.getElementById('plan-cadence').value = 'MONTHLY';
+      document.getElementById('plan-periods').value = '';
+      document.getElementById('plan-result').innerHTML = '';
+    }
+    if (id === 'new-sub-form') {
+      document.getElementById('newsub-customer-search').value = '';
+      document.getElementById('newsub-customer-id').value = '';
+      document.getElementById('newsub-customer-cards').innerHTML = '';
+      document.getElementById('newsub-card').innerHTML = '<option value="">Select customer first</option>';
+      document.getElementById('newsub-start').value = '';
+      document.getElementById('newsub-price').value = '';
+      document.getElementById('newsub-result').innerHTML = '';
+    }
+  }
 }
 
 // New Subscription customer search
