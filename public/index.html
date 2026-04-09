@@ -2944,6 +2944,28 @@ function toggleInvoiceForm() {
   const form = document.getElementById('invoice-form');
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
   if (form.style.display === 'block') {
+    // Clear all fields
+    document.getElementById('inv-title').value = '';
+    document.getElementById('inv-desc').value = '';
+    document.getElementById('inv-customer-search').value = '';
+    document.getElementById('inv-customer-id').value = '';
+    document.getElementById('inv-number').value = '';
+    document.getElementById('inv-sale-date').value = '';
+    document.getElementById('inv-delivery').value = 'EMAIL';
+    document.getElementById('inv-accept-card').checked = true;
+    document.getElementById('inv-accept-bank').checked = false;
+    document.getElementById('inv-accept-cash').checked = false;
+    document.getElementById('inv-tipping').checked = false;
+    document.getElementById('inv-store-card').checked = true;
+    document.getElementById('inv-result').innerHTML = '';
+    // Reset items to single empty row
+    const items = document.getElementById('inv-items');
+    items.innerHTML = `<div class="inv-item-row" style="display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;">
+      <input type="text" placeholder="Item name" class="inv-item-name" />
+      <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" />
+      <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" /></div>
+      <span></span>
+    </div>`;
     // Set default due date to 7 days from now
     const d = new Date(Date.now() + 7 * 86400000);
     document.getElementById('inv-due').value = d.toISOString().slice(0, 10);
