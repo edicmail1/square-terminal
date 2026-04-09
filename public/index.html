@@ -732,7 +732,7 @@
         <div class="field" style="margin-bottom:8px;">
           <label style="font-size:11px;">Customer</label>
           <div style="position:relative;">
-            <input type="text" id="newsub-customer-search" placeholder="Search customer..." oninput="searchNewSubCustomers(this.value)" autocomplete="off" />
+            <input type="text" id="newsub-customer-search" placeholder="Search or select customer..." oninput="searchNewSubCustomers(this.value)" onfocus="loadAllSubCustomers()" autocomplete="off" />
             <div id="newsub-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
           </div>
           <input type="hidden" id="newsub-customer-id" />
@@ -2754,6 +2754,7 @@ function toggleSubSection(id) {
     if (id === 'new-sub-form') {
       document.getElementById('newsub-customer-search').value = '';
       document.getElementById('newsub-customer-id').value = '';
+      allSubCustomersCache = [];
       document.getElementById('newsub-customer-cards').innerHTML = '';
       document.getElementById('newsub-card').innerHTML = '<option value="">Select customer first</option>';
       document.getElementById('newsub-start').value = '';
@@ -2764,23 +2765,59 @@ function toggleSubSection(id) {
 }
 
 // New Subscription customer search
+let allSubCustomersCache = [];
+
+async function loadAllSubCustomers() {
+  const results = document.getElementById('newsub-customer-results');
+  if (!profilesData?.activeId) return;
+  // Show cached list immediately if available
+  if (allSubCustomersCache.length) { renderSubCustomerList(allSubCustomersCache, ''); return; }
+  results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">Loading customers...</div>';
+  results.style.display = 'block';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?limit=100`, { credentials: 'include' });
+    if (!r.headers.get('content-type')?.includes('json')) return;
+    const data = await r.json();
+    allSubCustomersCache = data.customers || [];
+    renderSubCustomerList(allSubCustomersCache, '');
+  } catch (_) { results.style.display = 'none'; }
+}
+
+function renderSubCustomerList(customers, filter) {
+  const results = document.getElementById('newsub-customer-results');
+  const q = filter.toLowerCase();
+  const filtered = q ? customers.filter(c =>
+    (c.givenName || '').toLowerCase().includes(q) ||
+    (c.familyName || '').toLowerCase().includes(q) ||
+    (c.emailAddress || c.email || '').toLowerCase().includes(q) ||
+    (c.phone || '').includes(q)
+  ) : customers;
+  if (!filtered.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
+  results.innerHTML = filtered.slice(0, 15).map(c => {
+    const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+    return `<div onclick="selectNewSubCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || c.email || ''}</span></div>`;
+  }).join('');
+  results.style.display = 'block';
+}
+
 function searchNewSubCustomers(query) {
   clearTimeout(newsubCustomerSearchTimeout);
   const results = document.getElementById('newsub-customer-results');
-  if (query.length < 2) { results.style.display = 'none'; return; }
-  newsubCustomerSearchTimeout = setTimeout(async () => {
-    try {
-      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
-      const data = await r.json();
-      const customers = data.customers || [];
-      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
-      results.innerHTML = customers.slice(0, 8).map(c => {
-        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
-        return `<div onclick="selectNewSubCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || ''}</span></div>`;
-      }).join('');
-      results.style.display = 'block';
-    } catch (_) { results.style.display = 'none'; }
-  }, 300);
+  if (!query) { renderSubCustomerList(allSubCustomersCache, ''); return; }
+  // Filter from cache immediately
+  renderSubCustomerList(allSubCustomersCache, query);
+  // Also fetch from API for better results
+  if (query.length >= 2) {
+    newsubCustomerSearchTimeout = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
+        if (!r.headers.get('content-type')?.includes('json')) return;
+        const data = await r.json();
+        const customers = data.customers || [];
+        if (customers.length) renderSubCustomerList(customers, '');
+      } catch (_) {}
+    }, 400);
+  }
 }
 
 async function selectNewSubCustomer(id, name) {
