@@ -1356,7 +1356,7 @@ app.get('/api/profiles/:id/invoices/:invoiceId', requireAuth, async (req, res) =
 app.post('/api/profiles/:id/invoices', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { title, description, customerId, items, dueDate, deliveryMethod, acceptCard, acceptBankTransfer, acceptCash, invoiceNumber, saleDateStr, tippingEnabled, autoPaySource } = req.body;
+  const { title, description, customerId, items, dueDate, deliveryMethod, acceptCard, acceptBankTransfer, acceptCash, invoiceNumber, saleDateStr, tippingEnabled, autoPaySource, storeCard } = req.body;
   if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
   if (!customerId) return res.status(400).json({ error: 'Customer is required' });
 
@@ -1406,6 +1406,7 @@ app.post('/api/profiles/:id/invoices', requireAuth, async (req, res) => {
   if (description) invoiceBody.invoice.description = description;
   if (invoiceNumber) invoiceBody.invoice.invoice_number = invoiceNumber;
   if (saleDateStr) invoiceBody.invoice.sale_or_service_date = saleDateStr;
+  if (storeCard) invoiceBody.invoice.store_payment_method_enabled = true;
 
   const invRes = await squarePost(accessToken, '/v2/invoices', invoiceBody);
   if (invRes.status !== 200) {
@@ -1786,6 +1787,49 @@ app.post('/api/webhook/square', express.raw({ type: 'application/json' }), (req,
   }
 
   res.status(200).send('OK');
+});
+
+// Quick Charge (charge saved card-on-file)
+app.post('/api/profiles/:id/quick-charge', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { customerId, cardId, amount, currency, note } = req.body;
+  if (!customerId || !cardId || !amount) return res.status(400).json({ error: 'customerId, cardId, and amount required' });
+  if (profile.max_amount && parseFloat(amount) > profile.max_amount) return res.status(400).json({ error: `Amount exceeds limit of $${profile.max_amount.toFixed(2)}` });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const amountCents = Math.round(parseFloat(amount) * 100);
+  const r = await squarePost(accessToken, '/v2/payments', {
+    source_id: cardId,
+    amount_money: { amount: amountCents, currency: currency || 'USD' },
+    location_id: profile.location_id,
+    customer_id: customerId,
+    note: note || '',
+    idempotency_key: crypto.randomUUID(),
+    autocomplete: true,
+  });
+  if (r.status !== 200) {
+    const detail = r.body?.errors?.[0]?.detail || 'Payment failed';
+    const code = r.body?.errors?.[0]?.code || '';
+    return res.status(r.status).json({ error: detail, code });
+  }
+  const p = r.body.payment;
+  // Save to local DB
+  addTransaction(profile.id, {
+    id: p.id, type: 'quick_charge', amount: parseFloat(amount),
+    currency: currency || 'USD', note: note || '',
+    locationId: profile.location_id, status: p.status,
+    createdAt: p.created_at,
+  });
+  res.json({
+    success: true,
+    payment: {
+      id: p.id, status: p.status,
+      amount: (Number(p.amount_money?.amount || 0) / 100).toFixed(2),
+      receiptUrl: p.receipt_url || null,
+      riskLevel: p.risk_evaluation?.risk_level || null,
+    },
+  });
 });
 
 // Charge

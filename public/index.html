@@ -379,6 +379,7 @@
 
   <div class="tabs">
     <div class="tab" onclick="switchTab('manual')">Manual Entry</div>
+    <div class="tab" onclick="switchTab('quick')">⚡ Quick Charge</div>
     <div class="tab active" onclick="switchTab('link')">Payment Link</div>
     <div class="tab" onclick="switchTab('history')">📋 History</div>
     <div class="tab" onclick="switchTab('locations')">📍 Locations</div>
@@ -425,6 +426,43 @@
     </div>
     <button class="btn btn-primary" id="btn-charge" onclick="chargeCard()">Charge</button>
     <div class="result" id="result-manual"></div>
+  </div>
+
+  <!-- QUICK CHARGE -->
+  <div class="panel" id="panel-quick">
+    <div class="section-title">⚡ Quick Charge — Saved Card</div>
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#78350f;line-height:1.6">
+      Charge a customer's saved card instantly. No card input needed — select customer, pick their card, enter amount.
+    </div>
+    <div class="field">
+      <label>Customer</label>
+      <div style="position:relative;">
+        <input type="text" id="qc-customer-search" placeholder="Search customer by name or email..." oninput="searchQcCustomers(this.value)" autocomplete="off" />
+        <div id="qc-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+      </div>
+      <input type="hidden" id="qc-customer-id" />
+    </div>
+    <div class="field">
+      <label>Card</label>
+      <select id="qc-card" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+        <option value="">Select customer first</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="field" style="flex:1">
+        <label>Amount <span class="req">*</span></label>
+        <div class="amount-wrap">
+          <span>$</span>
+          <input type="number" id="qc-amount" placeholder="0.00" step="0.01" min="1" />
+        </div>
+      </div>
+      <div class="field" style="flex:2">
+        <label>Note (optional)</label>
+        <input type="text" id="qc-note" placeholder="Delivery, service description..." />
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="quickCharge()" style="width:100%;margin-top:4px;">⚡ Charge</button>
+    <div class="result" id="qc-result"></div>
   </div>
 
   <!-- PAYMENT LINK -->
@@ -617,6 +655,7 @@
       </div>
       <div style="display:flex;gap:12px;font-size:13px;margin-bottom:12px;">
         <label><input type="checkbox" id="inv-tipping" /> Enable tipping</label>
+        <label><input type="checkbox" id="inv-store-card" checked /> Save card for future payments</label>
       </div>
       <div class="result" id="inv-result"></div>
       <div style="display:flex;gap:8px;">
@@ -1850,14 +1889,15 @@ async function fetchHistory(append) {
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active',
-      (i === 0 && tab === 'manual') || (i === 1 && tab === 'link') ||
-      (i === 2 && tab === 'history') || (i === 3 && tab === 'locations') ||
-      (i === 4 && tab === 'payouts') || (i === 5 && tab === 'invoices') ||
-      (i === 6 && tab === 'subscriptions') || (i === 7 && tab === 'customers') ||
-      (i === 8 && tab === 'report') || (i === 9 && tab === 'settings')
+      (i === 0 && tab === 'manual') || (i === 1 && tab === 'quick') ||
+      (i === 2 && tab === 'link') || (i === 3 && tab === 'history') ||
+      (i === 4 && tab === 'locations') || (i === 5 && tab === 'payouts') ||
+      (i === 6 && tab === 'invoices') || (i === 7 && tab === 'subscriptions') ||
+      (i === 8 && tab === 'customers') || (i === 9 && tab === 'report') ||
+      (i === 10 && tab === 'settings')
     );
   });
-  ['manual','link','history','locations','payouts','invoices','subscriptions','customers','report','settings'].forEach(id => {
+  ['manual','quick','link','history','locations','payouts','invoices','subscriptions','customers','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
   if (tab === 'manual')        initSquare();
@@ -2561,6 +2601,77 @@ function loadPayoutsMore() {
 }
 
 
+// ── Quick Charge ──────────────────────────────────────────────────────────────────────
+let qcSearchTimeout = null;
+
+function searchQcCustomers(query) {
+  clearTimeout(qcSearchTimeout);
+  const results = document.getElementById('qc-customer-results');
+  if (query.length < 2) { results.style.display = 'none'; return; }
+  qcSearchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
+      const data = await r.json();
+      const customers = data.customers || [];
+      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
+      results.innerHTML = customers.slice(0, 8).map(c => {
+        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+        return `<div onclick="selectQcCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || c.email || ''}</span></div>`;
+      }).join('');
+      results.style.display = 'block';
+    } catch (_) { results.style.display = 'none'; }
+  }, 300);
+}
+
+async function selectQcCustomer(id, name) {
+  document.getElementById('qc-customer-id').value = id;
+  document.getElementById('qc-customer-search').value = name;
+  document.getElementById('qc-customer-results').style.display = 'none';
+  // Load saved cards
+  const cardSelect = document.getElementById('qc-card');
+  cardSelect.innerHTML = '<option value="">Loading cards...</option>';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/cards/${id}`, { credentials: 'include' });
+    const data = await r.json();
+    const cards = data.cards || [];
+    if (!cards.length) {
+      cardSelect.innerHTML = '<option value="">No saved cards — attach one in Customers tab</option>';
+    } else {
+      cardSelect.innerHTML = cards.map(c => `<option value="${c.id}">${c.brand} ****${c.last4} (${c.expMonth}/${c.expYear})</option>`).join('');
+    }
+  } catch (_) { cardSelect.innerHTML = '<option value="">Error loading cards</option>'; }
+}
+
+async function quickCharge() {
+  const result = document.getElementById('qc-result');
+  const customerId = document.getElementById('qc-customer-id').value;
+  const cardId = document.getElementById('qc-card').value;
+  const amount = document.getElementById('qc-amount').value;
+  const note = document.getElementById('qc-note').value.trim();
+  if (!customerId) { showResult(result, 'error', 'Select a customer'); return; }
+  if (!cardId) { showResult(result, 'error', 'No card selected. Attach a card in Customers tab first.'); return; }
+  if (!amount || parseFloat(amount) < 1) { showResult(result, 'error', 'Minimum amount is $1.00'); return; }
+  if (!profilesData?.activeId) { showResult(result, 'error', 'No active profile'); return; }
+  showResult(result, 'info', 'Processing payment...');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/quick-charge`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ customerId, cardId, amount: parseFloat(amount), note }),
+    });
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) { showResult(result, 'error', `Server error (HTTP ${r.status})`); return; }
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', `${data.error}${data.code ? ' (' + data.code + ')' : ''}`); return; }
+    const p = data.payment;
+    const risk = p.riskLevel ? ` · Risk: ${p.riskLevel}` : '';
+    const receipt = p.receiptUrl ? ` · <a href="${p.receiptUrl}" target="_blank" style="color:#006AFF">Receipt ↗</a>` : '';
+    showResult(result, 'success', `✅ $${p.amount} charged! Status: ${p.status}${risk}${receipt}`);
+    document.getElementById('qc-amount').value = '';
+    document.getElementById('qc-note').value = '';
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+
 // ── Notifications ─────────────────────────────────────────────────────────────────────
 let notifOpen = false;
 
@@ -2998,6 +3109,7 @@ async function createInvoice(publish) {
     acceptBankTransfer: document.getElementById('inv-accept-bank').checked,
     acceptCash: document.getElementById('inv-accept-cash').checked,
     tippingEnabled: document.getElementById('inv-tipping').checked,
+    storeCard: document.getElementById('inv-store-card').checked,
   };
 
   showResult(result, 'info', 'Creating invoice...');
