@@ -1210,7 +1210,7 @@ function renderProfileList() {
         <div style="flex:1">
           <div class="profile-card-name">${p.name}</div>
           <div class="profile-card-sub">
-            ${p.proxyUrl ? `🔒 Proxy · ` : ''}${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
+            ${p.proxyUrl ? `🔒 Proxy · ` : (p.hasHadProxy ? `<span style="color:#dc2626;font-weight:700">⛔ PROXY REQUIRED (was set before)</span> · ` : '')}${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
             ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
           </div>
         </div>
@@ -1222,7 +1222,6 @@ function renderProfileList() {
         <button class="btn btn-sm" onclick="editProfile('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db">Edit</button>
         <button class="btn btn-sm" onclick="checkProfileIp('${p.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe" id="btn-ip-${p.id}">🔍 Check IP</button>
         <button class="btn btn-sm" onclick="healthCheck('${p.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d" id="btn-health-${p.id}">🏥 Health</button>
-        <button class="btn btn-sm" onclick="registerWebhook('${p.id}')" style="background:#faf5ff;color:#7c3aed;border:1px solid #e9d5ff" id="btn-webhook-${p.id}">🔔 Webhook</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">Delete</button>
       </div>
       <div id="ip-result-${p.id}" style="display:none;margin-top:6px;padding:8px 12px;border-radius:8px;font-size:12px;"></div>
@@ -1458,42 +1457,6 @@ async function checkProfileIp(id) {
     result.innerHTML = `❌ Error: ${e.message}`;
   }
   btn.textContent = '🔍 Check IP';
-  btn.disabled = false;
-}
-
-async function registerWebhook(id) {
-  const btn = document.getElementById(`btn-webhook-${id}`);
-  const result = document.getElementById(`ip-result-${id}`);
-  btn.textContent = '⏳...';
-  btn.disabled = true;
-  result.style.display = 'block';
-  result.style.background = '#faf5ff';
-  result.style.color = '#7c3aed';
-  result.innerHTML = 'Registering webhook...';
-  try {
-    const r = await fetch(`/api/profiles/${id}/webhook/register`, { method: 'POST', credentials: 'include' });
-    const data = await r.json();
-    if (data.error) {
-      // Maybe already registered — try listing
-      const lr = await fetch(`/api/profiles/${id}/webhook/list`, { credentials: 'include' });
-      const ld = await lr.json();
-      const existing = (ld.webhooks || []).filter(w => w.notification_url?.includes('/api/webhook/square'));
-      if (existing.length) {
-        result.style.color = '#059669';
-        result.innerHTML = `✅ Webhook already registered (${existing.length})<br><span style="font-size:10px;color:#9ca3af;">${existing[0].notification_url}<br>Events: ${existing[0].event_types?.join(', ') || '—'}</span>`;
-      } else {
-        result.style.color = '#ef4444';
-        result.innerHTML = `❌ ${data.error}`;
-      }
-    } else {
-      result.style.color = '#059669';
-      result.innerHTML = `✅ Webhook registered!<br><span style="font-size:10px;color:#9ca3af;">Events: payment.created, payment.updated, subscription.created, subscription.updated</span>`;
-    }
-  } catch (e) {
-    result.style.color = '#ef4444';
-    result.innerHTML = `❌ ${e.message}`;
-  }
-  btn.textContent = '🔔 Webhook';
   btn.disabled = false;
 }
 

@@ -232,6 +232,9 @@ migrateFromEnv();
 
 // Add proxy_url column if missing
 try { db.exec("ALTER TABLE profiles ADD COLUMN proxy_url TEXT DEFAULT ''"); } catch (_) {}
+try { db.exec("ALTER TABLE profiles ADD COLUMN has_had_proxy INTEGER DEFAULT 0"); } catch (_) {}
+// Backfill: if proxy_url is set, mark has_had_proxy = 1
+try { db.exec("UPDATE profiles SET has_had_proxy = 1 WHERE proxy_url != '' AND has_had_proxy = 0"); } catch (_) {}
 
 // ── Profile Helpers ─────────────────────────────────────────────────────────
 function getActiveProfile() {
@@ -400,6 +403,14 @@ const squarePost = (t, p, b) => squareRequest('POST', t, p, b, _currentProxy);
 let _currentProxy = '';
 async function safeSquareCall(profile, apiCall) {
   try {
+    // Proxy safety: if profile previously had a proxy, block calls without one
+    if (profile.has_had_proxy === 1 && !profile.proxy_url) {
+      return {
+        status: 403,
+        body: { errors: [{ category: 'AUTHORIZATION_ERROR', code: 'PROXY_REQUIRED', detail: `Профиль "${profile.name}" ранее использовал прокси. Запросы без прокси заблокированы. Установите прокси в настройках.` }] },
+        proxyMissing: true,
+      };
+    }
     _currentProxy = profile.proxy_url || '';
     const result = await apiCall(getDecryptedToken(profile));
 
@@ -593,6 +604,7 @@ app.get('/api/profiles', requireAuth, (req, res) => {
         accessTokenMasked: maskToken(p.access_token),
         maxAmount: p.max_amount,
         proxyUrl: p.proxy_url || '',
+        hasHadProxy: p.has_had_proxy === 1,
         active: p.is_active === 1,
         transactionCount: txCount,
       };
@@ -983,21 +995,29 @@ app.post('/api/profiles', requireAuth, (req, res) => {
   if (id) {
     const p = getProfileById(id);
     if (!p) return res.status(404).json({ error: 'Not found' });
+    // If proxy was ever set, mark has_had_proxy permanently
+    const hasHadProxy = (p.has_had_proxy === 1 || proxyUrl) ? 1 : 0;
     dbRun(
-      `UPDATE profiles SET name = ?, application_id = ?, location_id = ?, max_amount = ?, proxy_url = ?, updated_at = datetime('now') WHERE id = ?`,
-      [name, applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, proxyUrl || '', id]
+      `UPDATE profiles SET name = ?, application_id = ?, location_id = ?, max_amount = ?, proxy_url = ?, has_had_proxy = ?, updated_at = datetime('now') WHERE id = ?`,
+      [name, applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, proxyUrl || '', hasHadProxy, id]
     );
     if (accessToken) {
       dbRun("UPDATE profiles SET access_token = ? WHERE id = ?", [encrypt(accessToken), id]);
     }
     if (p.is_active) squareClient = createSquareClient(getProfileById(id));
+    // Warn if proxy was removed but profile used to have one
+    if (p.has_had_proxy === 1 && !proxyUrl) {
+      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+        ['proxy_removed', `⚠️ Proxy removed for ${name}`, `This profile had a proxy before. Running without one risks Square linking accounts. Re-add proxy ASAP.`]);
+    }
   } else {
     if (!accessToken) return res.status(400).json({ error: 'accessToken is required' });
     const newId = uuidv4();
     const profileCount = dbGet("SELECT COUNT(*) as count FROM profiles").count;
+    const hasHadProxy = proxyUrl ? 1 : 0;
     dbRun(
-      `INSERT INTO profiles (id, name, access_token, application_id, location_id, max_amount, proxy_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [newId, name, encrypt(accessToken), applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, proxyUrl || '', profileCount === 0 ? 1 : 0]
+      `INSERT INTO profiles (id, name, access_token, application_id, location_id, max_amount, proxy_url, has_had_proxy, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [newId, name, encrypt(accessToken), applicationId, locationId, maxAmount ? parseFloat(maxAmount) : null, proxyUrl || '', hasHadProxy, profileCount === 0 ? 1 : 0]
     );
   }
 
@@ -1695,106 +1715,95 @@ app.post('/api/notifications/read', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// Register webhook for a profile
-app.post('/api/profiles/:id/webhook/register', requireAuth, async (req, res) => {
-  const profile = getProfileById(req.params.id);
-  if (!profile) return res.status(404).json({ error: 'Not found' });
-  const accessToken = getDecryptedToken(profile);
-  _currentProxy = profile.proxy_url || '';
-  // Force HTTPS — Render/any proxy always terminates TLS
-  const baseUrl = 'https://' + req.get('host');
-  const r = await squarePost(accessToken, '/v2/webhooks/subscriptions', {
-    idempotency_key: crypto.randomUUID(),
-    subscription: {
-      name: 'PNX Panel Notifications',
-      event_types: ['payment.created', 'payment.updated', 'subscription.created', 'subscription.updated'],
-      notification_url: baseUrl + '/api/webhook/square',
-      api_version: '2025-01-23',
-    },
-  });
-  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to register webhook' });
-  res.json({ webhook: r.body.subscription });
-});
+// ── Subscription Polling (hourly check for failed payments) ──────────────────
+// Runs periodically instead of webhook to avoid Square seeing a shared URL
+// across all merchant accounts (which could trigger anti-fraud linkage).
 
-// List webhooks for a profile
-app.get('/api/profiles/:id/webhook/list', requireAuth, async (req, res) => {
-  const profile = getProfileById(req.params.id);
-  if (!profile) return res.status(404).json({ error: 'Not found' });
-  const accessToken = getDecryptedToken(profile);
-  _currentProxy = profile.proxy_url || '';
-  const r = await squareGet(accessToken, '/v2/webhooks/subscriptions');
-  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
-  res.json({ webhooks: r.body.subscriptions || [] });
-});
-
-// Square Webhook endpoint (no auth — Square sends directly)
-app.post('/api/webhook/square', express.raw({ type: 'application/json' }), async (req, res) => {
-  // Parse body (may come as raw buffer or parsed JSON)
-  let event;
-  try {
-    event = typeof req.body === 'string' ? JSON.parse(req.body) : (Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString()) : req.body);
-  } catch (e) { return res.status(400).json({ error: 'Invalid JSON' }); }
-
-  const eventType = event.type;
-  const data = event.data?.object;
-  const merchantId = event.merchant_id;
-
-  // Find profile by merchant_id
-  const profiles = dbAll("SELECT * FROM profiles");
-  // We'll match by merchant_id if available, or just log for all
-
-  if (eventType === 'payment.created' || eventType === 'payment.updated') {
-    const payment = data?.payment;
-    if (!payment) return res.status(200).send('OK');
-    const amt = payment.amount_money ? (Number(payment.amount_money.amount) / 100).toFixed(2) : '?';
-    const status = payment.status;
-    const custId = payment.customer_id || '';
-
-    if (status === 'COMPLETED') {
-      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-        ['payment_success', `✅ Payment $${amt} completed`, `Customer: ${custId.slice(0, 12)}… · ID: ${payment.id?.slice(0, 16)}…`]);
-    } else if (status === 'FAILED') {
-      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-        ['payment_failed', `⛔ Payment $${amt} DECLINED`, `Customer: ${custId.slice(0, 12)}… · ${payment.card_details?.errors?.[0]?.detail || 'Card declined'}`]);
-      // Auto-cancel subscription if payment is from a subscription
-      if (payment.subscription_id) {
-        let canceled = false;
-        for (const p of profiles) {
-          try {
-            const token = getDecryptedToken(p);
-            _currentProxy = p.proxy_url || '';
-            const r = await squarePost(token, `/v2/subscriptions/${payment.subscription_id}/cancel`, {});
-            if (r.status === 200) {
-              dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-                ['subscription_canceled', `🔴 Subscription auto-canceled (decline)`, `${p.name} · Subscription: ${payment.subscription_id.slice(0, 16)}… — canceled due to payment failure`]);
-              canceled = true;
-              break;
-            }
-          } catch (_) {}
-        }
-        if (!canceled) {
-          dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-            ['subscription_cancel_failed', `⚠️ Failed to auto-cancel subscription`, `Subscription: ${payment.subscription_id.slice(0, 16)}… — manual cancel needed`]);
-        }
-      }
-    }
-  } else if (eventType === 'subscription.created') {
-    const sub = data?.subscription;
-    if (sub) {
-      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-        ['subscription_created', `📋 New subscription created`, `Customer: ${sub.customer_id?.slice(0, 12)}… · Status: ${sub.status} · Start: ${sub.start_date || 'now'}`]);
-    }
-  } else if (eventType === 'subscription.updated') {
-    const sub = data?.subscription;
-    if (sub) {
-      const icons = { ACTIVE: '▶️', PAUSED: '⏸', CANCELED: '❌', DEACTIVATED: '🔴', COMPLETED: '✅', PENDING: '⏳' };
-      const icon = icons[sub.status] || '📋';
-      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-        [`subscription_${sub.status?.toLowerCase()}`, `${icon} Subscription ${sub.status}`, `Customer: ${sub.customer_id?.slice(0, 12)}… · Charged through: ${sub.charged_through_date || '—'}`]);
-    }
+async function pollSubscriptionsForProfile(profile) {
+  // Proxy safety: if profile has ever had a proxy, refuse to call without it
+  if (profile.has_had_proxy && !profile.proxy_url) {
+    dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+      ['proxy_missing', `⚠️ PROXY MISSING: ${profile.name}`, `This profile previously had a proxy configured. Running without one risks Square linking accounts. Polling SKIPPED until proxy is restored.`]);
+    return;
   }
 
-  res.status(200).send('OK');
+  try {
+    const token = getDecryptedToken(profile);
+    _currentProxy = profile.proxy_url || '';
+
+    // 1. Get active subscriptions
+    const subRes = await squarePost(token, '/v2/subscriptions/search', {
+      query: { filter: { location_ids: [profile.location_id] } },
+    });
+    if (subRes.status !== 200) return;
+    const activeSubs = (subRes.body.subscriptions || []).filter(s => s.status === 'ACTIVE' || s.status === 'PENDING');
+    if (!activeSubs.length) return;
+
+    // 2. Get payments from last 2 hours (buffer for retries)
+    const beginTime = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const payRes = await squareGet(token, `/v2/payments?location_id=${profile.location_id}&begin_time=${beginTime}&limit=100&sort_order=DESC`);
+    if (payRes.status !== 200) return;
+    const payments = payRes.body.payments || [];
+
+    // 3. For each active subscription, check for FAILED payments
+    const failedSubIds = new Set();
+    for (const p of payments) {
+      if (p.status === 'FAILED' && p.subscription_id) {
+        failedSubIds.add(p.subscription_id);
+      }
+    }
+
+    // 4. Cancel subscriptions with failed payments
+    for (const sub of activeSubs) {
+      if (failedSubIds.has(sub.id)) {
+        try {
+          const r = await squarePost(token, `/v2/subscriptions/${sub.id}/cancel`, {});
+          if (r.status === 200) {
+            dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+              ['subscription_canceled', `🔴 Subscription auto-canceled (decline)`, `${profile.name} · Customer: ${sub.customer_id?.slice(0, 12)}… · ID: ${sub.id.slice(0, 16)}…`]);
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 5. Also log new completed payments for this hour as notifications
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    for (const p of payments) {
+      const createdMs = new Date(p.created_at).getTime();
+      if (createdMs < oneHourAgo) continue;
+      const amt = p.amount_money ? (Number(p.amount_money.amount) / 100).toFixed(2) : '?';
+      // Deduplicate — don't insert if we already have notification for this payment id
+      const existing = dbGet("SELECT id FROM notifications WHERE detail LIKE ? LIMIT 1", ['%' + p.id + '%']);
+      if (existing) continue;
+      if (p.status === 'COMPLETED') {
+        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+          ['payment_success', `✅ Payment $${amt} completed`, `${profile.name} · Customer: ${p.customer_id?.slice(0, 12) || '—'}… · ID: ${p.id}`]);
+      } else if (p.status === 'FAILED') {
+        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+          ['payment_failed', `⛔ Payment $${amt} DECLINED`, `${profile.name} · Customer: ${p.customer_id?.slice(0, 12) || '—'}… · ID: ${p.id}`]);
+      }
+    }
+  } catch (e) {
+    console.error(`Polling error for ${profile.name}:`, e.message);
+  }
+}
+
+async function pollAllSubscriptions() {
+  const profiles = dbAll("SELECT * FROM profiles");
+  for (const p of profiles) {
+    await pollSubscriptionsForProfile(p);
+  }
+}
+
+// Run polling every hour
+setInterval(pollAllSubscriptions, 60 * 60 * 1000);
+// Run once at startup (after 30s to let server warm up)
+setTimeout(pollAllSubscriptions, 30 * 1000);
+
+// Manual poll trigger for testing
+app.post('/api/poll-subscriptions', requireAuth, async (req, res) => {
+  await pollAllSubscriptions();
+  res.json({ success: true });
 });
 
 // Quick Charge (charge saved card-on-file)
