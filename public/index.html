@@ -1210,7 +1210,7 @@ function renderProfileList() {
         <div style="flex:1">
           <div class="profile-card-name">${p.name}</div>
           <div class="profile-card-sub">
-            ${p.proxyUrl ? `🔒 Proxy · ` : (p.hasHadProxy ? `<span style="color:#dc2626;font-weight:700">⛔ PROXY REQUIRED (was set before)</span> · ` : '')}${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
+            ${p.proxyUrl ? `🔒 Proxy${p.lastProxyIp ? ` (${p.lastProxyIp})` : ''} · ` : (p.hasHadProxy ? `<span style="color:#dc2626;font-weight:700">⛔ PROXY REQUIRED${p.lastProxyIp ? ` (was: ${p.lastProxyIp})` : ''}</span> · ` : '')}${p.maxAmount ? `Limit: $${p.maxAmount.toFixed(2)} · ` : ''}
             ${p.transactionCount} transaction${p.transactionCount !== 1 ? 's' : ''}
           </div>
         </div>

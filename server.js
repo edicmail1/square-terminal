@@ -233,6 +233,8 @@ migrateFromEnv();
 // Add proxy_url column if missing
 try { db.exec("ALTER TABLE profiles ADD COLUMN proxy_url TEXT DEFAULT ''"); } catch (_) {}
 try { db.exec("ALTER TABLE profiles ADD COLUMN has_had_proxy INTEGER DEFAULT 0"); } catch (_) {}
+try { db.exec("ALTER TABLE profiles ADD COLUMN last_proxy_ip TEXT DEFAULT ''"); } catch (_) {}
+try { db.exec("ALTER TABLE profiles ADD COLUMN last_proxy_check TEXT DEFAULT ''"); } catch (_) {}
 // Backfill: if proxy_url is set, mark has_had_proxy = 1
 try { db.exec("UPDATE profiles SET has_had_proxy = 1 WHERE proxy_url != '' AND has_had_proxy = 0"); } catch (_) {}
 
@@ -605,6 +607,8 @@ app.get('/api/profiles', requireAuth, (req, res) => {
         maxAmount: p.max_amount,
         proxyUrl: p.proxy_url || '',
         hasHadProxy: p.has_had_proxy === 1,
+        lastProxyIp: p.last_proxy_ip || '',
+        lastProxyCheck: p.last_proxy_check || '',
         active: p.is_active === 1,
         transactionCount: txCount,
       };
@@ -824,9 +828,13 @@ app.get('/api/profiles/:id/check-ip', requireAuth, async (req, res) => {
       r.on('timeout', () => { r.destroy(); reject(new Error('Timeout')); });
       r.end();
     });
+    // Save last known proxy IP
+    if (proxyUrl && result.ip) {
+      dbRun("UPDATE profiles SET last_proxy_ip = ?, last_proxy_check = datetime('now') WHERE id = ?", [result.ip, profile.id]);
+    }
     res.json({ ip: result.ip, proxy: !!proxyUrl, proxyUrl: proxyUrl ? proxyUrl.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@') : null });
   } catch (e) {
-    res.json({ error: e.message, proxy: !!proxyUrl, proxyUrl: proxyUrl ? proxyUrl.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@') : null });
+    res.json({ error: e.message, proxy: !!proxyUrl, proxyUrl: proxyUrl ? proxyUrl.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@') : null, lastProxyIp: profile.last_proxy_ip || null });
   }
 });
 
@@ -1719,6 +1727,40 @@ app.post('/api/notifications/read', requireAuth, (req, res) => {
 // Runs periodically instead of webhook to avoid Square seeing a shared URL
 // across all merchant accounts (which could trigger anti-fraud linkage).
 
+// Check if profile's proxy is working. Returns { ok: bool, ip: string|null, error: string|null }
+async function checkProfileProxy(profile) {
+  if (!profile.proxy_url) return { ok: true, ip: null, error: null };
+  const agent = getProxyAgent(profile.proxy_url);
+  if (!agent) return { ok: false, ip: null, error: 'Invalid proxy URL' };
+  try {
+    const ip = await new Promise((resolve, reject) => {
+      const r = https.request({
+        hostname: 'api.ipify.org', path: '/?format=json', method: 'GET',
+        agent, timeout: 10000,
+      }, response => {
+        let data = '';
+        response.on('data', c => data += c);
+        response.on('end', () => {
+          try { resolve(JSON.parse(data).ip); }
+          catch { resolve(data.trim()); }
+        });
+      });
+      r.on('error', reject);
+      r.on('timeout', () => { r.destroy(); reject(new Error('Timeout')); });
+      r.end();
+    });
+    return { ok: true, ip, error: null };
+  } catch (e) {
+    return { ok: false, ip: null, error: e.message };
+  }
+}
+
+// Mask proxy URL for display (hide password)
+function maskProxyUrl(url) {
+  if (!url) return '';
+  return url.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@');
+}
+
 async function pollSubscriptionsForProfile(profile) {
   // Proxy safety: if profile has ever had a proxy, refuse to call without it
   if (profile.has_had_proxy && !profile.proxy_url) {
@@ -1791,6 +1833,24 @@ async function pollSubscriptionsForProfile(profile) {
 async function pollAllSubscriptions() {
   const profiles = dbAll("SELECT * FROM profiles");
   for (const p of profiles) {
+    // First check proxy health (if proxy is configured)
+    if (p.proxy_url) {
+      const check = await checkProfileProxy(p);
+      if (check.ok) {
+        // Update last_proxy_ip if changed
+        if (check.ip && check.ip !== p.last_proxy_ip) {
+          dbRun("UPDATE profiles SET last_proxy_ip = ?, last_proxy_check = datetime('now') WHERE id = ?", [check.ip, p.id]);
+          p.last_proxy_ip = check.ip;
+        } else {
+          dbRun("UPDATE profiles SET last_proxy_check = datetime('now') WHERE id = ?", [p.id]);
+        }
+      } else {
+        // Proxy failed — log notification with last known IP and skip polling for this profile
+        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+          ['proxy_failed', `⚠️ Proxy FAILED: ${p.name}`, `Proxy: ${maskProxyUrl(p.proxy_url)} · Last working IP: ${p.last_proxy_ip || 'unknown'} · Error: ${check.error} · Polling SKIPPED until fixed.`]);
+        continue; // skip polling to avoid running without proxy
+      }
+    }
     await pollSubscriptionsForProfile(p);
   }
 }
