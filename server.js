@@ -1701,7 +1701,8 @@ app.post('/api/profiles/:id/webhook/register', requireAuth, async (req, res) => 
   if (!profile) return res.status(404).json({ error: 'Not found' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
-  const baseUrl = req.protocol + '://' + req.get('host');
+  // Force HTTPS — Render/any proxy always terminates TLS
+  const baseUrl = 'https://' + req.get('host');
   const r = await squarePost(accessToken, '/v2/webhooks/subscriptions', {
     idempotency_key: crypto.randomUUID(),
     subscription: {
@@ -1727,7 +1728,7 @@ app.get('/api/profiles/:id/webhook/list', requireAuth, async (req, res) => {
 });
 
 // Square Webhook endpoint (no auth — Square sends directly)
-app.post('/api/webhook/square', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/api/webhook/square', express.raw({ type: 'application/json' }), async (req, res) => {
   // Parse body (may come as raw buffer or parsed JSON)
   let event;
   try {
@@ -1757,16 +1758,23 @@ app.post('/api/webhook/square', express.raw({ type: 'application/json' }), (req,
         ['payment_failed', `⛔ Payment $${amt} DECLINED`, `Customer: ${custId.slice(0, 12)}… · ${payment.card_details?.errors?.[0]?.detail || 'Card declined'}`]);
       // Auto-cancel subscription if payment is from a subscription
       if (payment.subscription_id) {
-        // Find the token for this merchant
+        let canceled = false;
         for (const p of profiles) {
           try {
             const token = getDecryptedToken(p);
             _currentProxy = p.proxy_url || '';
-            squarePost(token, `/v2/subscriptions/${payment.subscription_id}/cancel`, {});
-            dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-              ['subscription_canceled', `🔴 Subscription auto-canceled (decline)`, `Subscription: ${payment.subscription_id.slice(0, 16)}… — canceled due to payment failure`]);
-            break;
+            const r = await squarePost(token, `/v2/subscriptions/${payment.subscription_id}/cancel`, {});
+            if (r.status === 200) {
+              dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+                ['subscription_canceled', `🔴 Subscription auto-canceled (decline)`, `${p.name} · Subscription: ${payment.subscription_id.slice(0, 16)}… — canceled due to payment failure`]);
+              canceled = true;
+              break;
+            }
           } catch (_) {}
+        }
+        if (!canceled) {
+          dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+            ['subscription_cancel_failed', `⚠️ Failed to auto-cancel subscription`, `Subscription: ${payment.subscription_id.slice(0, 16)}… — manual cancel needed`]);
         }
       }
     }
