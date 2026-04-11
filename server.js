@@ -235,6 +235,7 @@ try { db.exec("ALTER TABLE profiles ADD COLUMN proxy_url TEXT DEFAULT ''"); } ca
 try { db.exec("ALTER TABLE profiles ADD COLUMN has_had_proxy INTEGER DEFAULT 0"); } catch (_) {}
 try { db.exec("ALTER TABLE profiles ADD COLUMN last_proxy_ip TEXT DEFAULT ''"); } catch (_) {}
 try { db.exec("ALTER TABLE profiles ADD COLUMN last_proxy_check TEXT DEFAULT ''"); } catch (_) {}
+try { db.exec("ALTER TABLE profiles ADD COLUMN proxy_status TEXT DEFAULT ''"); } catch (_) {}
 // Backfill: if proxy_url is set, mark has_had_proxy = 1
 try { db.exec("UPDATE profiles SET has_had_proxy = 1 WHERE proxy_url != '' AND has_had_proxy = 0"); } catch (_) {}
 
@@ -1773,7 +1774,30 @@ async function pollSubscriptionsForProfile(profile) {
     const token = getDecryptedToken(profile);
     _currentProxy = profile.proxy_url || '';
 
-    // 1. Get active subscriptions
+    // 1. Get payments from last 2 hours (for notifications + subscription decline detection)
+    const beginTime = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const payRes = await squareGet(token, `/v2/payments?location_id=${profile.location_id}&begin_time=${beginTime}&limit=100&sort_order=DESC`);
+    if (payRes.status !== 200) return;
+    const payments = payRes.body.payments || [];
+
+    // 2. Log all new payments as notifications (deduplicated by payment ID)
+    for (const p of payments) {
+      const existing = dbGet("SELECT id FROM notifications WHERE detail LIKE ? LIMIT 1", ['%' + p.id + '%']);
+      if (existing) continue;
+      const amt = p.amount_money ? (Number(p.amount_money.amount) / 100).toFixed(2) : '?';
+      const cust = p.customer_id ? `Customer: ${p.customer_id.slice(0, 12)}…` : 'No customer';
+      const sub = p.subscription_id ? ' · 🔄 Subscription' : '';
+      if (p.status === 'COMPLETED') {
+        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+          ['payment_success', `✅ Payment $${amt} completed`, `${profile.name} · ${cust}${sub} · ID: ${p.id}`]);
+      } else if (p.status === 'FAILED') {
+        const reason = p.card_details?.errors?.[0]?.detail || 'Card declined';
+        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+          ['payment_failed', `⛔ Payment $${amt} DECLINED`, `${profile.name} · ${cust}${sub} · ${reason} · ID: ${p.id}`]);
+      }
+    }
+
+    // 3. Get active subscriptions (only if we need to cancel on decline)
     const subRes = await squarePost(token, '/v2/subscriptions/search', {
       query: { filter: { location_ids: [profile.location_id] } },
     });
@@ -1781,21 +1805,13 @@ async function pollSubscriptionsForProfile(profile) {
     const activeSubs = (subRes.body.subscriptions || []).filter(s => s.status === 'ACTIVE' || s.status === 'PENDING');
     if (!activeSubs.length) return;
 
-    // 2. Get payments from last 2 hours (buffer for retries)
-    const beginTime = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    const payRes = await squareGet(token, `/v2/payments?location_id=${profile.location_id}&begin_time=${beginTime}&limit=100&sort_order=DESC`);
-    if (payRes.status !== 200) return;
-    const payments = payRes.body.payments || [];
-
-    // 3. For each active subscription, check for FAILED payments
+    // 4. Detect failed subscription payments → cancel subscriptions
     const failedSubIds = new Set();
     for (const p of payments) {
       if (p.status === 'FAILED' && p.subscription_id) {
         failedSubIds.add(p.subscription_id);
       }
     }
-
-    // 4. Cancel subscriptions with failed payments
     for (const sub of activeSubs) {
       if (failedSubIds.has(sub.id)) {
         try {
@@ -1807,24 +1823,6 @@ async function pollSubscriptionsForProfile(profile) {
         } catch (_) {}
       }
     }
-
-    // 5. Also log new completed payments for this hour as notifications
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    for (const p of payments) {
-      const createdMs = new Date(p.created_at).getTime();
-      if (createdMs < oneHourAgo) continue;
-      const amt = p.amount_money ? (Number(p.amount_money.amount) / 100).toFixed(2) : '?';
-      // Deduplicate — don't insert if we already have notification for this payment id
-      const existing = dbGet("SELECT id FROM notifications WHERE detail LIKE ? LIMIT 1", ['%' + p.id + '%']);
-      if (existing) continue;
-      if (p.status === 'COMPLETED') {
-        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-          ['payment_success', `✅ Payment $${amt} completed`, `${profile.name} · Customer: ${p.customer_id?.slice(0, 12) || '—'}… · ID: ${p.id}`]);
-      } else if (p.status === 'FAILED') {
-        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-          ['payment_failed', `⛔ Payment $${amt} DECLINED`, `${profile.name} · Customer: ${p.customer_id?.slice(0, 12) || '—'}… · ID: ${p.id}`]);
-      }
-    }
   } catch (e) {
     console.error(`Polling error for ${profile.name}:`, e.message);
   }
@@ -1833,7 +1831,19 @@ async function pollSubscriptionsForProfile(profile) {
 async function pollAllSubscriptions() {
   const profiles = dbAll("SELECT * FROM profiles");
   for (const p of profiles) {
-    // First check proxy health (if proxy is configured)
+    const prevStatus = p.proxy_status || '';
+
+    // Case 1: has_had_proxy but no proxy configured now
+    if (p.has_had_proxy === 1 && !p.proxy_url) {
+      if (prevStatus !== 'missing') {
+        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+          ['proxy_missing', `⛔ PROXY MISSING: ${p.name}`, `Profile previously had a proxy. Running without one risks Square linking accounts. Last known IP: ${p.last_proxy_ip || 'unknown'}. Polling SKIPPED.`]);
+        dbRun("UPDATE profiles SET proxy_status = 'missing' WHERE id = ?", [p.id]);
+      }
+      continue; // skip polling
+    }
+
+    // Case 2: proxy is configured — check if it works
     if (p.proxy_url) {
       const check = await checkProfileProxy(p);
       if (check.ok) {
@@ -1844,13 +1854,28 @@ async function pollAllSubscriptions() {
         } else {
           dbRun("UPDATE profiles SET last_proxy_check = datetime('now') WHERE id = ?", [p.id]);
         }
+        // Transition: failed/missing → ok → notify recovery
+        if (prevStatus === 'failed' || prevStatus === 'missing') {
+          dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+            ['proxy_recovered', `✅ Proxy recovered: ${p.name}`, `Proxy: ${maskProxyUrl(p.proxy_url)} · IP: ${check.ip || 'unknown'} · Polling resumed.`]);
+        }
+        dbRun("UPDATE profiles SET proxy_status = 'ok' WHERE id = ?", [p.id]);
       } else {
-        // Proxy failed — log notification with last known IP and skip polling for this profile
-        dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
-          ['proxy_failed', `⚠️ Proxy FAILED: ${p.name}`, `Proxy: ${maskProxyUrl(p.proxy_url)} · Last working IP: ${p.last_proxy_ip || 'unknown'} · Error: ${check.error} · Polling SKIPPED until fixed.`]);
+        // Transition: ok/empty → failed → notify once
+        if (prevStatus !== 'failed') {
+          dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+            ['proxy_failed', `⚠️ Proxy FAILED: ${p.name}`, `Proxy: ${maskProxyUrl(p.proxy_url)} · Last working IP: ${p.last_proxy_ip || 'unknown'} · Error: ${check.error} · Polling SKIPPED until fixed.`]);
+          dbRun("UPDATE profiles SET proxy_status = 'failed' WHERE id = ?", [p.id]);
+        }
         continue; // skip polling to avoid running without proxy
       }
+    } else {
+      // Case 3: no proxy and never had one — mark ok silently
+      if (prevStatus !== 'ok') {
+        dbRun("UPDATE profiles SET proxy_status = 'ok' WHERE id = ?", [p.id]);
+      }
     }
+
     await pollSubscriptionsForProfile(p);
   }
 }
