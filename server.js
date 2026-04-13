@@ -1085,6 +1085,7 @@ app.get('/api/profiles/:id/locations', requireAuth, async (req, res) => {
       address_line_1: l.address?.address_line_1 || '', city: l.address?.locality || '',
       state: l.address?.administrative_district_level_1 || '', postal_code: l.address?.postal_code || '',
       currency: l.currency, country: l.country, timezone: l.timezone, type: l.type,
+      mcc: l.mcc || null,
       created_at: l.created_at || null, isActive: l.id === profile.location_id,
       canProcessPayments: Array.isArray(l.capabilities) && l.capabilities.includes('CREDIT_CARD_PROCESSING'),
       capabilities: l.capabilities || [],
