@@ -1732,6 +1732,13 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   if (!customerId || !planVariationId) return res.status(400).json({ error: 'customerId and planVariationId required' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
+
+  // Check if plan variation uses RELATIVE pricing — if so, need to build phases with order template
+  const varRes = await squareGet(accessToken, `/v2/catalog/object/${planVariationId}?include_related_objects=true`);
+  const varData = varRes.body?.object?.subscription_plan_variation_data;
+  const phase = varData?.phases?.[0];
+  const isRelative = phase?.pricing?.type === 'RELATIVE';
+
   const body = {
     idempotency_key: crypto.randomUUID(),
     location_id: profile.location_id,
@@ -1741,6 +1748,34 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   if (cardId) body.card_id = cardId;
   if (startDate) body.start_date = startDate;
   if (priceOverride) body.price_override_money = { amount: Math.round(parseFloat(priceOverride) * 100), currency: 'USD' };
+
+  // For RELATIVE pricing, fetch linked item and create order template
+  if (isRelative && varData?.subscription_plan_id) {
+    const planObj = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
+    const eligibleItemIds = planObj.body?.object?.subscription_plan_data?.eligible_item_ids || [];
+    if (eligibleItemIds.length > 0) {
+      // Get item variation ID
+      const itemObj = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
+      const itemVarId = itemObj.body?.object?.item_data?.variations?.[0]?.id;
+      if (itemVarId) {
+        // Create order template
+        const orderRes = await squarePost(accessToken, '/v2/orders', {
+          order: {
+            location_id: profile.location_id,
+            line_items: [{ quantity: '1', catalog_object_id: itemVarId }],
+          },
+          idempotency_key: crypto.randomUUID(),
+        });
+        if (orderRes.status === 200) {
+          body.phases = [{
+            ordinal: 0,
+            order_template_id: orderRes.body.order.id,
+          }];
+        }
+      }
+    }
+  }
+
   const r = await squarePost(accessToken, '/v2/subscriptions', body);
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription' });
   res.json({ subscription: r.body.subscription });
