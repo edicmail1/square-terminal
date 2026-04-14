@@ -1758,10 +1758,11 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       const itemObj = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
       const itemVarId = itemObj.body?.object?.item_data?.variations?.[0]?.id;
       if (itemVarId) {
-        // Create order template
+        // Create order template (must be DRAFT for subscription)
         const orderRes = await squarePost(accessToken, '/v2/orders', {
           order: {
             location_id: profile.location_id,
+            state: 'DRAFT',
             line_items: [{ quantity: '1', catalog_object_id: itemVarId }],
           },
           idempotency_key: crypto.randomUUID(),
