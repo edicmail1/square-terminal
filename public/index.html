@@ -643,12 +643,15 @@
       <div id="inv-items">
         <div class="inv-item-row" style="display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;">
           <input type="text" placeholder="Item name" class="inv-item-name" />
-          <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" />
-          <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" /></div>
+          <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" oninput="updateInvTotal()" />
+          <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" oninput="updateInvTotal()" /></div>
           <span></span>
         </div>
       </div>
-      <button onclick="addInvItem()" style="background:none;border:none;color:#006AFF;font-size:12px;font-weight:600;cursor:pointer;padding:4px 0;">+ Add item</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <button onclick="addInvItem()" style="background:none;border:none;color:#006AFF;font-size:12px;font-weight:600;cursor:pointer;padding:4px 0;">+ Add item</button>
+        <div id="inv-total" style="font-size:14px;font-weight:700;color:#111827;"></div>
+      </div>
       <div class="row" style="margin-top:10px;">
         <div class="field">
           <label>Due Date</label>
@@ -3398,6 +3401,7 @@ function toggleInvoiceForm() {
     document.getElementById('inv-tipping').checked = false;
     document.getElementById('inv-store-card').checked = true;
     document.getElementById('inv-result').innerHTML = '';
+    document.getElementById('inv-total').textContent = '';
     // Reset items to single empty row
     const items = document.getElementById('inv-items');
     items.innerHTML = `<div class="inv-item-row" style="display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;">
@@ -3419,10 +3423,23 @@ function addInvItem() {
   row.style.cssText = 'display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;';
   row.innerHTML = `
     <input type="text" placeholder="Item name" class="inv-item-name" />
-    <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" />
-    <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" /></div>
-    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;">✕</button>`;
+    <input type="number" placeholder="Qty" value="1" min="1" class="inv-item-qty" oninput="updateInvTotal()" />
+    <div class="amount-wrap"><span>$</span><input type="number" placeholder="0.00" step="0.01" min="0.01" class="inv-item-price" oninput="updateInvTotal()" /></div>
+    <button onclick="this.parentElement.remove();updateInvTotal()" style="background:none;border:none;color:#ef4444;font-size:16px;cursor:pointer;">✕</button>`;
   container.appendChild(row);
+  updateInvTotal();
+}
+
+function updateInvTotal() {
+  const rows = document.querySelectorAll('.inv-item-row');
+  let total = 0;
+  for (const row of rows) {
+    const qty = parseInt(row.querySelector('.inv-item-qty')?.value) || 0;
+    const price = parseFloat(row.querySelector('.inv-item-price')?.value) || 0;
+    total += qty * price;
+  }
+  const el = document.getElementById('inv-total');
+  el.textContent = total > 0 ? `Total: $${total.toFixed(2)}` : '';
 }
 
 function toggleNewCustomerForm() {

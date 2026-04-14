@@ -1398,6 +1398,30 @@ app.post('/api/profiles/:id/invoices', requireAuth, async (req, res) => {
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
 
+  // 0. Add items to Catalog (so they appear in Square Item Library)
+  const catalogObjects = items.map((item, i) => ({
+    type: 'ITEM',
+    id: `#inv_item_${Date.now()}_${i}`,
+    item_data: {
+      name: item.name || 'Item',
+      product_type: 'REGULAR',
+      variations: [{
+        type: 'ITEM_VARIATION',
+        id: `#inv_var_${Date.now()}_${i}`,
+        item_variation_data: {
+          name: 'Regular',
+          pricing_type: 'FIXED_PRICING',
+          price_money: { amount: Math.round(parseFloat(item.price) * 100), currency: 'USD' },
+        },
+      }],
+    },
+  }));
+  // Fire and forget — don't block invoice creation if catalog fails
+  squarePost(accessToken, '/v2/catalog/batch-upsert', {
+    idempotency_key: crypto.randomUUID(),
+    batches: [{ objects: catalogObjects }],
+  }).catch(() => {});
+
   // 1. Create Order
   const lineItems = items.map(item => ({
     name: item.name || 'Item',
