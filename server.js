@@ -1672,7 +1672,8 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   if (!realPlanId) return res.status(500).json({ error: 'Plan created but no ID returned', debug: planRes.body });
 
   // Step 3: Create the variation linked to the plan
-  const phase = { cadence, ordinal: 0, pricing: { type: 'STATIC', price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' } } };
+  // Use RELATIVE pricing (price from linked Catalog Item) — avoids "legacy plan" tag
+  const phase = { cadence, ordinal: 0, pricing: { type: 'RELATIVE' } };
   if (periodsInt) phase.periods = periodsInt;
   const varRes = await squarePost(accessToken, '/v2/catalog/batch-upsert', {
     idempotency_key: crypto.randomUUID(),
