@@ -3305,17 +3305,36 @@ async function loadSubscriptionsList() {
       if (s.status === 'ACTIVE') actions.push(`<button onclick="pauseSubscription('${s.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Pause</button>`);
       if (s.status === 'PAUSED') actions.push(`<button onclick="resumeSubscription('${s.id}')" style="background:#ecfdf5;color:#059669;border:1px solid #bbf7d0;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Resume</button>`);
       if (['ACTIVE','PAUSED','PENDING'].includes(s.status)) actions.push(`<button onclick="cancelSubscription('${s.id}')" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Cancel</button>`);
-      return `<div style="padding:8px 0;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <span style="font-weight:600;">Customer: ${s.customerId.slice(0, 12)}…</span>
-          <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;margin-left:6px;">${s.status}</span>
-          <div style="font-size:11px;color:#9ca3af;margin-top:2px;">
-            Start: ${s.startDate || '—'} · Charged through: ${s.chargedThroughDate || '—'}
-            ${s.priceOverride ? ' · Override: $' + s.priceOverride : ''}
-            ${s.cardId ? ' · 💳 Card on file' : ' · 📧 Invoice'}
+      // Progress info
+      const price = s.pricePerCharge ? `$${s.pricePerCharge}` : '—';
+      const progressText = s.periods
+        ? `${s.chargesDone}/${s.periods} charges · $${s.chargedAmount || '0.00'} of $${s.totalAmount || '0.00'}`
+        : (s.chargesDone > 0 ? `${s.chargesDone} charges · $${s.chargedAmount || '0.00'}` : '');
+      const progressBar = s.periods ? (() => {
+        const pct = Math.min(100, Math.round((s.chargesDone / s.periods) * 100));
+        return `<div style="margin-top:4px;height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${pct >= 100 ? '#059669' : '#006AFF'};border-radius:2px;"></div></div>`;
+      })() : '';
+
+      return `<div style="padding:10px 0;border-bottom:1px solid #f3f4f6;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span style="font-weight:600;">${s.planName || 'Subscription'}</span>
+              <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;">${s.status}</span>
+              ${s.pricePerCharge ? `<span style="font-size:12px;font-weight:700;color:#111827;">$${s.pricePerCharge}/${(s.cadence || 'period').toLowerCase().replace(/_/g, ' ')}</span>` : ''}
+            </div>
+            <div style="font-size:11px;color:#6b7280;margin-top:3px;">
+              Customer: ${s.customerId.slice(0, 12)}… · ${s.cardId ? '💳 Card' : '📧 Invoice'}
+            </div>
+            ${progressText ? `<div style="font-size:12px;font-weight:600;color:#111827;margin-top:3px;">📊 ${progressText}</div>` : ''}
+            ${progressBar}
+            <div style="font-size:11px;color:#9ca3af;margin-top:3px;">
+              Start: ${s.startDate || '—'} · Through: ${s.chargedThroughDate || '—'}
+              ${s.priceOverride ? ' · Override: $' + s.priceOverride : ''}
+            </div>
           </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;">${actions.join('')}</div>
         </div>
-        <div style="display:flex;gap:4px;">${actions.join('')}</div>
       </div>`;
     }).join('');
   } catch (e) { list.innerHTML = `<span style="color:#ef4444">${e.message}</span>`; }

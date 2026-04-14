@@ -1662,17 +1662,73 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   if (!profile) return res.status(404).json({ error: 'Not found' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
-  const r = await squarePost(accessToken, '/v2/subscriptions/search', {
-    query: { filter: { location_ids: [profile.location_id] } },
+  // Fetch subscriptions + plans in parallel
+  const [subRes, planRes] = await Promise.all([
+    squarePost(accessToken, '/v2/subscriptions/search', { query: { filter: { location_ids: [profile.location_id] } } }),
+    squarePost(accessToken, '/v2/catalog/search', { object_types: ['SUBSCRIPTION_PLAN'], include_related_objects: true }),
+  ]);
+  if (subRes.status !== 200) return res.status(subRes.status).json({ error: subRes.body?.errors?.[0]?.detail || 'Failed' });
+
+  // Build plan variation lookup: variationId → { name, cadence, periods, amount }
+  const varLookup = {};
+  if (planRes.status === 200) {
+    const related = planRes.body.related_objects || [];
+    for (const obj of (planRes.body.objects || [])) {
+      const planName = obj.subscription_plan_data?.name || '';
+      for (const v of (obj.subscription_plan_data?.subscription_plan_variations || [])) {
+        const full = related.find(r => r.id === v.id) || v;
+        const phase = full.subscription_plan_variation_data?.phases?.[0];
+        varLookup[full.id] = {
+          planName,
+          varName: full.subscription_plan_variation_data?.name || '',
+          cadence: phase?.cadence || '',
+          periods: phase?.periods || null,
+          amount: phase?.pricing?.price_money ? (Number(phase.pricing.price_money.amount) / 100).toFixed(2) : (phase?.pricing?.price ? (Number(phase.pricing.price.amount) / 100).toFixed(2) : null),
+        };
+      }
+    }
+  }
+
+  const subs = (subRes.body.subscriptions || []).map(s => {
+    const plan = varLookup[s.plan_variation_id] || {};
+    // Calculate charges done based on start_date and charged_through_date
+    let chargesDone = 0;
+    if (s.start_date && s.charged_through_date && plan.cadence) {
+      const start = new Date(s.start_date);
+      const through = new Date(s.charged_through_date);
+      const diffMs = through - start;
+      const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+      if (plan.cadence === 'DAILY') chargesDone = diffDays;
+      else if (plan.cadence === 'WEEKLY') chargesDone = Math.floor(diffDays / 7);
+      else if (plan.cadence === 'EVERY_TWO_WEEKS') chargesDone = Math.floor(diffDays / 14);
+      else if (plan.cadence === 'MONTHLY' || plan.cadence === 'THIRTY_DAYS') chargesDone = Math.floor(diffDays / 30);
+      else if (plan.cadence === 'QUARTERLY') chargesDone = Math.floor(diffDays / 90);
+      else if (plan.cadence === 'EVERY_SIX_MONTHS') chargesDone = Math.floor(diffDays / 180);
+      else if (plan.cadence === 'ANNUAL') chargesDone = Math.floor(diffDays / 365);
+      if (chargesDone < 0) chargesDone = 0;
+    }
+    const pricePerCharge = s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : plan.amount;
+    const totalPeriods = plan.periods || null;
+    const totalAmount = totalPeriods && pricePerCharge ? (totalPeriods * parseFloat(pricePerCharge)).toFixed(2) : null;
+    const chargedAmount = pricePerCharge ? (chargesDone * parseFloat(pricePerCharge)).toFixed(2) : null;
+
+    return {
+      id: s.id, status: s.status, customerId: s.customer_id, cardId: s.card_id,
+      planVariationId: s.plan_variation_id, startDate: s.start_date,
+      chargedThroughDate: s.charged_through_date,
+      canceledDate: s.canceled_date, createdAt: s.created_at,
+      priceOverride: s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : null,
+      // Plan info
+      planName: plan.planName || '',
+      cadence: plan.cadence || '',
+      periods: totalPeriods,
+      pricePerCharge: pricePerCharge || null,
+      // Progress
+      chargesDone,
+      chargedAmount,
+      totalAmount,
+    };
   });
-  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
-  const subs = (r.body.subscriptions || []).map(s => ({
-    id: s.id, status: s.status, customerId: s.customer_id, cardId: s.card_id,
-    planVariationId: s.plan_variation_id, startDate: s.start_date,
-    chargedThroughDate: s.charged_through_date,
-    canceledDate: s.canceled_date, createdAt: s.created_at,
-    priceOverride: s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : null,
-  }));
   res.json({ subscriptions: subs });
 });
 
