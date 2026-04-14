@@ -1137,11 +1137,18 @@
 
   <!-- SETTINGS -->
   <div class="panel" id="panel-settings">
-    <div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;">
-      <button class="period-btn active" data-stab="active" onclick="switchSettingsTab('active')">✅ Active</button>
-      <button class="period-btn" data-stab="blocked" onclick="switchSettingsTab('blocked')">❌ Blocked</button>
-      <button class="period-btn" data-stab="add" onclick="switchSettingsTab('add')">➕ Add New</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;gap:4px;">
+        <button class="period-btn active" data-stab="active" onclick="switchSettingsTab('active')">✅ Active</button>
+        <button class="period-btn" data-stab="blocked" onclick="switchSettingsTab('blocked')">❌ Blocked</button>
+        <button class="period-btn" data-stab="add" onclick="switchSettingsTab('add')">➕ Add New</button>
+      </div>
+      <div style="display:flex;gap:4px;">
+        <button onclick="bulkCheckIp()" id="btn-bulk-ip" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🔍 Check All IPs</button>
+        <button onclick="bulkHealthCheck()" id="btn-bulk-health" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏥 Health All</button>
+      </div>
     </div>
+    <div id="bulk-result" class="result" style="margin-bottom:10px;"></div>
 
     <div id="settings-tab-active">
       <div class="profile-list" id="profile-list-active">Loading...</div>
@@ -1368,6 +1375,60 @@ function renderProfileSwitcher() {
   sel.innerHTML = profilesData.profiles.map(p =>
     `<option value="${p.id}" ${p.id === profilesData.activeId ? 'selected' : ''}>${p.name}</option>`
   ).join('');
+}
+
+async function bulkCheckIp() {
+  const result = document.getElementById('bulk-result');
+  const btn = document.getElementById('btn-bulk-ip');
+  const profiles = profilesData.profiles || [];
+  if (!profiles.length) { showResult(result, 'error', 'No profiles'); return; }
+  btn.disabled = true;
+  let html = '';
+  for (let i = 0; i < profiles.length; i++) {
+    showResult(result, 'info', `Checking IP ${i + 1}/${profiles.length}...`);
+    try {
+      const r = await fetch(`/api/profiles/${profiles[i].id}/check-ip`, { credentials: 'include' });
+      const data = await r.json();
+      const icon = data.error ? '❌' : (data.proxy ? '🔒' : '🌐');
+      html += `<div style="font-size:12px;padding:2px 0;">${icon} <strong>${profiles[i].name}</strong>: ${data.error || data.ip}${data.proxy ? ' (proxy)' : ''}</div>`;
+    } catch (e) { html += `<div style="font-size:12px;padding:2px 0;">❌ <strong>${profiles[i].name}</strong>: ${e.message}</div>`; }
+  }
+  result.style.display = 'block';
+  result.className = 'result success';
+  result.innerHTML = html;
+  btn.disabled = false;
+}
+
+async function bulkHealthCheck() {
+  const result = document.getElementById('bulk-result');
+  const btn = document.getElementById('btn-bulk-health');
+  const profiles = profilesData.profiles || [];
+  if (!profiles.length) { showResult(result, 'error', 'No profiles'); return; }
+  btn.disabled = true;
+  let html = '';
+  for (let i = 0; i < profiles.length; i++) {
+    showResult(result, 'info', `Health check ${i + 1}/${profiles.length}...`);
+    try {
+      const r = await fetch(`/api/profiles/${profiles[i].id}/health`, { credentials: 'include' });
+      const data = await r.json();
+      if (data.error) { html += `<div style="font-size:12px;padding:2px 0;">❌ <strong>${profiles[i].name}</strong>: ${data.error}</div>`; continue; }
+      const merchant = data.merchant;
+      const locs = Array.isArray(data.locations) ? data.locations : [];
+      const canPay = locs.some(l => (l.capabilities || []).includes('CREDIT_CARD_PROCESSING'));
+      const liveTests = data.liveTests || {};
+      const orderOk = liveTests.createOrder?.status === 'ok';
+      const invoiceOk = liveTests.createInvoice?.status === 'ok';
+      const chargeOk = liveTests.chargePayment?.status === 'ok';
+      html += `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #f3f4f6;">
+        <strong>${profiles[i].name}</strong> · ${merchant?.status || '?'} · ${canPay ? '✅ Payments' : '❌ No payments'}
+        · Order: ${orderOk ? '✅' : '❌'} · Invoice: ${invoiceOk ? '✅' : '❌'} · Charge: ${chargeOk ? '✅' : '❌'}
+      </div>`;
+    } catch (e) { html += `<div style="font-size:12px;padding:2px 0;">❌ <strong>${profiles[i].name}</strong>: ${e.message}</div>`; }
+  }
+  result.style.display = 'block';
+  result.className = 'result success';
+  result.innerHTML = html;
+  btn.disabled = false;
 }
 
 function switchSettingsTab(tab) {

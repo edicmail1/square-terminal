@@ -2482,6 +2482,25 @@ app.post('/api/profiles/:id/customers', requireAuth, async (req, res) => {
   if (!profile) return res.status(404).json({ error: 'Not found' });
   const { givenName, familyName, emailAddress, phoneNumber, addressLine1, locality, state, postalCode, country } = req.body;
   if (!givenName && !familyName && !emailAddress) return res.status(400).json({ error: 'At least a name or email is required' });
+  // Duplicate detection by email or phone
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  if (emailAddress) {
+    const dupCheck = await squarePost(accessToken, '/v2/customers/search', { query: { filter: { email_address: { exact: emailAddress } } }, limit: 1 });
+    if (dupCheck.status === 200 && dupCheck.body.customers?.length) {
+      const dup = dupCheck.body.customers[0];
+      const dupName = [dup.given_name, dup.family_name].filter(Boolean).join(' ');
+      return res.status(409).json({ error: `Customer with email "${emailAddress}" already exists: ${dupName} (${dup.id.slice(0, 12)}…)`, existingId: dup.id });
+    }
+  }
+  if (phoneNumber && !emailAddress) {
+    const dupCheck = await squarePost(accessToken, '/v2/customers/search', { query: { filter: { phone_number: { exact: phoneNumber } } }, limit: 1 });
+    if (dupCheck.status === 200 && dupCheck.body.customers?.length) {
+      const dup = dupCheck.body.customers[0];
+      const dupName = [dup.given_name, dup.family_name].filter(Boolean).join(' ');
+      return res.status(409).json({ error: `Customer with phone "${phoneNumber}" already exists: ${dupName} (${dup.id.slice(0, 12)}…)`, existingId: dup.id });
+    }
+  }
   const body = { idempotency_key: crypto.randomUUID() };
   if (givenName) body.given_name = givenName;
   if (familyName) body.family_name = familyName;
