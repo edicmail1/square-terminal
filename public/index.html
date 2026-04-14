@@ -1127,10 +1127,21 @@
 
   <!-- SETTINGS -->
   <div class="panel" id="panel-settings">
-    <div class="section-title">Your Businesses</div>
-    <div class="profile-list" id="profile-list">Loading...</div>
+    <div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="period-btn active" data-stab="active" onclick="switchSettingsTab('active')">✅ Active</button>
+      <button class="period-btn" data-stab="blocked" onclick="switchSettingsTab('blocked')">❌ Blocked</button>
+      <button class="period-btn" data-stab="add" onclick="switchSettingsTab('add')">➕ Add New</button>
+    </div>
 
-    <hr class="divider" />
+    <div id="settings-tab-active">
+      <div class="profile-list" id="profile-list-active">Loading...</div>
+    </div>
+
+    <div id="settings-tab-blocked" style="display:none;">
+      <div class="profile-list" id="profile-list-blocked"><p style="color:#6b7280;font-size:13px;">No blocked businesses</p></div>
+    </div>
+
+    <div id="settings-tab-add" style="display:none;">
 
     <div id="oauth-connect-block" style="display:none;margin-bottom:20px">
       <div class="section-title">Connect via Square OAuth</div>
@@ -1192,6 +1203,8 @@
       <button class="btn btn-sm" id="btn-cancel-edit" onclick="cancelEdit()" style="display:none;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:13px 16px">Cancel</button>
     </div>
     <div class="result" id="result-settings"></div>
+
+    </div><!-- end settings-tab-add -->
   </div>
 </div>
 
@@ -1346,12 +1359,22 @@ function renderProfileSwitcher() {
   ).join('');
 }
 
+function switchSettingsTab(tab) {
+  ['active','blocked','add'].forEach(t => {
+    document.getElementById('settings-tab-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('[data-stab]').forEach(b => b.classList.toggle('active', b.dataset.stab === tab));
+}
+
 function renderProfileList() {
-  const el = document.getElementById('profile-list');
+  const el = document.getElementById('profile-list-active');
+  const elBlocked = document.getElementById('profile-list-blocked');
   if (!profilesData.profiles.length) {
-    el.innerHTML = '<div style="color:#6b7280;font-size:13px">No profiles yet.</div>';
+    el.innerHTML = '<div style="color:#6b7280;font-size:13px">No profiles yet. Go to ➕ Add New tab.</div>';
+    elBlocked.innerHTML = '';
     return;
   }
+  // Initially render all in active — loadMerchantInfo will re-sort after loading
   el.innerHTML = profilesData.profiles.map(p => `
     <div class="profile-card ${p.active ? 'is-active' : ''}" id="card-${p.id}">
       <!-- Compact summary (always visible) -->
@@ -1440,6 +1463,16 @@ async function loadMerchantInfo(profileId) {
     if (compactEl) {
       const proxyWarning = compactEl.innerHTML.includes('PROXY REQUIRED') ? '<span style="color:#dc2626;font-weight:700">⛔ PROXY REQUIRED</span> · ' : '';
       compactEl.innerHTML = `${proxyWarning}${statusDot}${m.status || '—'} · ${canPay ? '<span style="color:#10b981;font-weight:600">✅ Может принимать платежи</span>' : '<span style="color:#ef4444;font-weight:600">❌ Платежи недоступны</span>'}${mcc ? ` · MCC ${mcc} (${mccDesc})` : ''}`;
+    }
+
+    // Move card to blocked tab if can't process payments
+    if (!canPay) {
+      const card = document.getElementById(`card-${profileId}`);
+      const blockedList = document.getElementById('profile-list-blocked');
+      if (card && blockedList) {
+        blockedList.innerHTML = blockedList.innerHTML.includes('No blocked') ? '' : blockedList.innerHTML;
+        blockedList.appendChild(card);
+      }
     }
 
     // Merchant info block (inside expanded section)
