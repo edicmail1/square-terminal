@@ -502,7 +502,9 @@
         <option value="">Loading locations...</option>
       </select>
       <button class="btn btn-sm" onclick="loadHistory()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:8px 14px">↻ Refresh</button>
+      <button class="btn btn-sm" onclick="refundAllPayments()" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;padding:8px 14px;font-weight:600">🔄 Refund All</button>
     </div>
+    <div id="refund-all-result" class="result" style="margin-bottom:10px;"></div>
     <div class="tx-list" id="tx-list"><div class="empty-state">Loading...</div></div>
     <div id="history-load-more" style="display:none;margin-top:10px">
       <button class="btn btn-sm" onclick="loadMoreHistory()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;width:100%;padding:10px">Load more...</button>
@@ -1772,11 +1774,15 @@ async function fetchHistory(append) {
     const isOk   = p.status === 'COMPLETED';
     const isFail = p.status === 'FAILED' || p.status === 'CANCELED';
     const amt    = ((p.amount?.amount || 0) / 100).toFixed(2);
+    const amtCents = Number(p.amount?.amount || 0);
     const fee    = p.processingFee ? `-$${(p.processingFee.amount / 100).toFixed(2)}` : '—';
-    const refund = p.refundedMoney ? `-$${(p.refundedMoney.amount / 100).toFixed(2)}` : '—';
+    const refundedCents = Number(p.refundedMoney?.amount || 0);
+    const refund = refundedCents ? `-$${(refundedCents / 100).toFixed(2)}` : '—';
+    const isFullyRefunded = refundedCents > 0 && refundedCents >= amtCents;
+    const isPartiallyRefunded = refundedCents > 0 && refundedCents < amtCents;
     const date   = new Date(p.createdAt).toLocaleString('ru-RU');
-    const statusColor = isOk ? '#10b981' : isFail ? '#ef4444' : '#f59e0b';
-    const itemClass = isOk ? 'completed' : isFail ? 'failed' : '';
+    const statusColor = isFullyRefunded ? '#6b7280' : isOk ? '#10b981' : isFail ? '#ef4444' : '#f59e0b';
+    const itemClass = isFullyRefunded ? 'failed' : isOk ? 'completed' : isFail ? 'failed' : '';
 
     const riskColor = { LOW: '#10b981', NORMAL: '#10b981', MODERATE: '#f59e0b', HIGH: '#ef4444' }[p.riskLevel] || '#9ca3af';
 
@@ -1790,6 +1796,8 @@ async function fetchHistory(append) {
       <div class="tx-row">
         <div class="tx-amount">$${amt} <span style="font-size:11px;font-weight:400;color:#6b7280">${p.currency || ''}</span></div>
         <span style="font-size:11px;font-weight:700;color:${statusColor}">${p.status}</span>
+        ${isFullyRefunded ? `<span style="font-size:10px;font-weight:700;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:10px;margin-left:4px;">REFUNDED $${(refundedCents/100).toFixed(2)}</span>` : ''}
+        ${isPartiallyRefunded ? `<span style="font-size:10px;font-weight:700;color:#f59e0b;background:#fffbeb;padding:1px 6px;border-radius:10px;margin-left:4px;">PARTIAL REFUND $${(refundedCents/100).toFixed(2)}</span>` : ''}
       </div>
       ${p.note ? `<div class="tx-note" style="margin-top:3px">${p.note}</div>` : ''}
       ${p.declineCode ? `
@@ -1822,7 +1830,7 @@ async function fetchHistory(append) {
             ${(p.billingName && p.shippingName && p.billingName !== p.shippingName) ? `<span style="color:#ef4444;font-weight:600">⚠ Billing ≠ Shipping</span>` : ''}
           </div>
         </div>` : ''}
-      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${p.status === 'COMPLETED' ? ` · <span onclick="toggleRefundForm('${p.id}',${ (Number(p.amount?.amount||0)/100).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund</span>` : ''}</div>
+      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${(p.status === 'COMPLETED' && !isFullyRefunded) ? ` · <span onclick="toggleRefundForm('${p.id}',${(Number(p.amount?.amount||0)/100).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund${isPartiallyRefunded ? ' more' : ''}</span>` : ''}</div>
       <div id="refund-form-${p.id}" style="display:none;margin-top:6px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
         <div style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:6px;">
           <label><input type="radio" name="refund-type-${p.id}" value="full" checked onchange="document.getElementById('refund-partial-${p.id}').style.display='none'"> Full ($${(Number(p.amount?.amount||0)/100).toFixed(2)})</label>
@@ -2662,6 +2670,58 @@ async function processRefund(paymentId, fullAmount) {
     showResult(result, 'success', `✅ Refunded $${ref.amount} · Status: ${ref.status}${ref.reason ? ' · ' + ref.reason : ''}`);
     // Reload history after 2 seconds
     setTimeout(() => loadHistory(), 2000);
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+
+async function refundAllPayments() {
+  const result = document.getElementById('refund-all-result');
+  if (!profilesData?.activeId) { showResult(result, 'error', 'No active profile'); return; }
+  const locationId = document.getElementById('history-location').value;
+  if (!locationId) { showResult(result, 'error', 'Select a location'); return; }
+
+  if (!confirm('Refund ALL completed payments currently shown in History? This cannot be undone!')) return;
+
+  showResult(result, 'info', 'Fetching payments...');
+
+  try {
+    // Fetch current payments
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/payments?location_id=${locationId}&limit=100`).then(r => r.json());
+    if (data.error) { showResult(result, 'error', data.error); return; }
+
+    const payments = (data.payments || []).filter(p => {
+      if (p.status !== 'COMPLETED') return false;
+      const amtCents = Number(p.amount?.amount || 0);
+      const refundedCents = Number(p.refundedMoney?.amount || 0);
+      return refundedCents < amtCents; // not fully refunded
+    });
+
+    if (!payments.length) { showResult(result, 'info', 'No refundable payments found'); return; }
+
+    if (!confirm(`Found ${payments.length} refundable payment(s). Proceed with refunding all?`)) return;
+
+    let success = 0, failed = 0;
+    showResult(result, 'info', `Refunding ${payments.length} payments...`);
+
+    for (const p of payments) {
+      const amtCents = Number(p.amount?.amount || 0);
+      const refundedCents = Number(p.refundedMoney?.amount || 0);
+      const remainingCents = amtCents - refundedCents;
+      const amount = (remainingCents / 100).toFixed(2);
+      try {
+        const r = await fetch(`/api/profiles/${profilesData.activeId}/refund`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ paymentId: p.id, amount: parseFloat(amount) }),
+        });
+        const d = await r.json();
+        if (d.success) success++;
+        else failed++;
+      } catch (_) { failed++; }
+      showResult(result, 'info', `Refunding... ${success + failed}/${payments.length} (✅ ${success} · ❌ ${failed})`);
+    }
+
+    showResult(result, success > 0 ? 'success' : 'error', `Done: ✅ ${success} refunded · ❌ ${failed} failed`);
+    setTimeout(() => loadHistory(), 1500);
   } catch (e) { showResult(result, 'error', e.message); }
 }
 
