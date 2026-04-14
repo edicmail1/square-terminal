@@ -2550,6 +2550,7 @@ async function chargeCard() {
         : `✅ Payment successful!<br>ID: ${res.paymentId}${receipt}`);
       // Clear form
       ['m-amount','m-note','m-name','m-email','m-address','m-city','m-state','m-zip','m-customer-id'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('m-authorize-only').checked = false;
     } else {
       const err = res.errors?.[0];
       const code = err?.code;
@@ -3121,9 +3122,11 @@ function toggleSubSection(id) {
       allSubCustomersCache = [];
       document.getElementById('newsub-customer-cards').innerHTML = '';
       document.getElementById('newsub-card').innerHTML = '<option value="">Select customer first</option>';
+      document.getElementById('newsub-plan').selectedIndex = 0;
       document.getElementById('newsub-start').value = '';
       document.getElementById('newsub-price').value = '';
       document.getElementById('newsub-result').innerHTML = '';
+      document.getElementById('qc-authorize-only').checked = false;
     }
   }
 }
@@ -3445,7 +3448,11 @@ function updateInvTotal() {
 function toggleNewCustomerForm() {
   const form = document.getElementById('new-customer-form');
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  if (form.style.display === 'block') document.getElementById('nc-quick').focus();
+  if (form.style.display === 'block') {
+    ['nc-quick','nc-first','nc-last','nc-email','nc-phone','nc-address','nc-city','nc-state','nc-zip'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('nc-result').innerHTML = '';
+    document.getElementById('nc-quick').focus();
+  }
 }
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
@@ -3739,6 +3746,10 @@ let custCard = null; // Web Payments SDK instance for attach card
 function toggleCustAddForm() {
   const f = document.getElementById('cust-add-form');
   f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if (f.style.display === 'block') {
+    ['cust-quick','cust-first','cust-last','cust-email','cust-phone','cust-address','cust-city','cust-state','cust-zip'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('cust-add-result').innerHTML = '';
+  }
 }
 
 function parseCustLine(line) {
@@ -3784,6 +3795,7 @@ async function openAttachCard(customerId, customerName) {
   const form = document.getElementById('cust-attach-card');
   document.getElementById('cust-card-customer-id').value = customerId;
   document.getElementById('cust-card-name').textContent = customerName;
+  document.getElementById('cust-card-result').innerHTML = '';
   form.style.display = 'block';
   // Load existing cards
   const existingDiv = document.getElementById('cust-card-existing');
