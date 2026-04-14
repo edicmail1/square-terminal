@@ -378,6 +378,7 @@
   </div>
 
   <div class="tabs">
+    <div class="tab" onclick="switchTab('dashboard')">📊 Dashboard</div>
     <div class="tab" onclick="switchTab('manual')">Manual Entry</div>
     <div class="tab" onclick="switchTab('quick')">⚡ Quick Charge</div>
     <div class="tab active" onclick="switchTab('link')">Payment Link</div>
@@ -392,6 +393,15 @@
   </div>
 
   <!-- MANUAL ENTRY -->
+  <!-- DASHBOARD -->
+  <div class="panel" id="panel-dashboard">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;">📊 Dashboard</h3>
+      <button onclick="loadDashboard()" style="background:#f3f4f6;border:1px solid #d1d5db;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;color:#374151;">🔄 Refresh</button>
+    </div>
+    <div id="dashboard-content"><p style="color:#6b7280;font-size:14px;">Loading...</p></div>
+  </div>
+
   <div class="panel" id="panel-manual">
     <div class="field">
       <label>Amount <span class="req">*</span></label>
@@ -2105,17 +2115,18 @@ function switchTab(tab) {
   try { localStorage.setItem('lastTab', tab); } catch (_) {}
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active',
-      (i === 0 && tab === 'manual') || (i === 1 && tab === 'quick') ||
-      (i === 2 && tab === 'link') || (i === 3 && tab === 'history') ||
-      (i === 4 && tab === 'locations') || (i === 5 && tab === 'payouts') ||
-      (i === 6 && tab === 'invoices') || (i === 7 && tab === 'subscriptions') ||
-      (i === 8 && tab === 'customers') || (i === 9 && tab === 'report') ||
-      (i === 10 && tab === 'settings')
+      (i === 0 && tab === 'dashboard') || (i === 1 && tab === 'manual') ||
+      (i === 2 && tab === 'quick') || (i === 3 && tab === 'link') ||
+      (i === 4 && tab === 'history') || (i === 5 && tab === 'locations') ||
+      (i === 6 && tab === 'payouts') || (i === 7 && tab === 'invoices') ||
+      (i === 8 && tab === 'subscriptions') || (i === 9 && tab === 'customers') ||
+      (i === 10 && tab === 'report') || (i === 11 && tab === 'settings')
     );
   });
-  ['manual','quick','link','history','locations','payouts','invoices','subscriptions','customers','report','settings'].forEach(id => {
+  ['dashboard','manual','quick','link','history','locations','payouts','invoices','subscriptions','customers','report','settings'].forEach(id => {
     document.getElementById('panel-' + id).classList.toggle('active', tab === id);
   });
+  if (tab === 'dashboard')     loadDashboard();
   if (tab === 'manual')        initSquare();
   if (tab === 'link')          loadLinkLocations();
   if (tab === 'history')       loadHistory();
@@ -2126,6 +2137,79 @@ function switchTab(tab) {
   if (tab === 'customers')     loadCustomers();
   if (tab === 'report')        loadReport();
   if (tab === 'settings')      loadProfiles();
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  const el = document.getElementById('dashboard-content');
+  el.innerHTML = '<p style="color:#6b7280;font-size:14px;"><span class="spinner" style="border-color:rgba(0,106,255,0.3);border-top-color:#006AFF"></span> Loading dashboard...</p>';
+  try {
+    const r = await fetch('/api/dashboard', { credentials: 'include' });
+    if (!r.headers.get('content-type')?.includes('json')) { el.innerHTML = '<p style="color:#ef4444;">Server error</p>'; return; }
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<p style="color:#ef4444;">${d.error}</p>`; return; }
+
+    // Summary cards
+    let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px;">
+      <div style="background:#ecfdf5;border:1px solid #bbf7d0;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#059669;">${d.totalActive}</div>
+        <div style="font-size:12px;color:#6b7280;">Active Businesses</div>
+      </div>
+      <div style="background:${d.totalBlocked > 0 ? '#fef2f2' : '#f9fafb'};border:1px solid ${d.totalBlocked > 0 ? '#fecaca' : '#e5e7eb'};border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:${d.totalBlocked > 0 ? '#dc2626' : '#6b7280'};">${d.totalBlocked}</div>
+        <div style="font-size:12px;color:#6b7280;">Blocked</div>
+      </div>
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#2563eb;">${d.today.payments}</div>
+        <div style="font-size:12px;color:#6b7280;">Today's Payments</div>
+      </div>
+      <div style="background:#ecfdf5;border:1px solid #bbf7d0;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#059669;">$${d.today.amount}</div>
+        <div style="font-size:12px;color:#6b7280;">Today's Revenue</div>
+      </div>
+      ${d.today.failed > 0 ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#dc2626;">${d.today.failed}</div>
+        <div style="font-size:12px;color:#6b7280;">Failed Today</div>
+      </div>` : ''}
+      <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#7c3aed;">${d.activeSubs}</div>
+        <div style="font-size:12px;color:#6b7280;">Active Subscriptions</div>
+      </div>
+    </div>`;
+
+    // Per-business breakdown
+    if (d.businesses?.length) {
+      html += '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:12px;">';
+      html += '<strong style="font-size:13px;color:#111827;">Businesses Today</strong>';
+      html += '<div style="margin-top:8px;">';
+      for (const b of d.businesses) {
+        const statusIcon = b.status === 'active' ? '✅' : b.status === 'blocked' ? '❌' : b.status === 'proxy_missing' ? '⛔' : '⚠️';
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
+          <span>${statusIcon} ${b.name}</span>
+          <span style="color:#374151;font-weight:600;">${b.payments || 0} payments · $${b.amount || '0.00'}${b.failed ? ` · <span style="color:#dc2626">${b.failed} failed</span>` : ''}</span>
+        </div>`;
+      }
+      html += '</div></div>';
+    }
+
+    // Recent notifications
+    if (d.recentNotifications?.length) {
+      html += '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;">';
+      html += `<strong style="font-size:13px;color:#111827;">Recent Notifications ${d.unreadNotifications > 0 ? `<span style="color:#dc2626;">(${d.unreadNotifications} unread)</span>` : ''}</strong>`;
+      html += '<div style="margin-top:8px;">';
+      for (const n of d.recentNotifications) {
+        const time = n.created_at ? new Date(n.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+        html += `<div style="padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:12px;${n.read ? '' : 'font-weight:600;'}">
+          <div>${n.title}</div>
+          ${n.detail ? `<div style="color:#6b7280;font-size:11px;">${n.detail}</div>` : ''}
+          <div style="color:#9ca3af;font-size:10px;">${time}</div>
+        </div>`;
+      }
+      html += '</div></div>';
+    }
+
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = `<p style="color:#ef4444;">Error: ${e.message}</p>`; }
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────────────────────────────────

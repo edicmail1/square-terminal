@@ -617,6 +617,82 @@ app.get('/api/profiles', requireAuth, (req, res) => {
   });
 });
 
+// Dashboard summary across all profiles
+app.get('/api/dashboard', requireAuth, async (req, res) => {
+  const profiles = dbAll("SELECT * FROM profiles");
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+
+  let totalActive = 0, totalBlocked = 0, todayPayments = 0, todayAmount = 0, todayFailed = 0;
+  let activeSubs = 0, pendingPayouts = 0;
+  const businessSummaries = [];
+
+  for (const p of profiles) {
+    // Skip proxy-blocked profiles
+    if (p.has_had_proxy === 1 && !p.proxy_url) {
+      totalBlocked++;
+      businessSummaries.push({ name: p.name, status: 'proxy_missing', payments: 0, amount: 0 });
+      continue;
+    }
+
+    try {
+      const token = getDecryptedToken(p);
+      _currentProxy = p.proxy_url || '';
+
+      // Check location capabilities
+      const locRes = await squareGet(token, '/v2/locations');
+      const locs = locRes.status === 200 ? (locRes.body.locations || []) : [];
+      const canPay = locs.some(l => l.status === 'ACTIVE' && (l.capabilities || []).includes('CREDIT_CARD_PROCESSING'));
+      if (canPay) totalActive++; else totalBlocked++;
+
+      // Today's payments
+      const payRes = await squareGet(token, `/v2/payments?location_id=${p.location_id}&begin_time=${todayStart}&limit=100&sort_order=DESC`);
+      if (payRes.status === 200) {
+        const payments = payRes.body.payments || [];
+        let bizAmount = 0, bizCount = 0, bizFailed = 0;
+        for (const pay of payments) {
+          if (pay.status === 'COMPLETED') {
+            bizCount++;
+            bizAmount += Number(pay.amount_money?.amount || 0);
+          } else if (pay.status === 'FAILED') bizFailed++;
+        }
+        todayPayments += bizCount;
+        todayAmount += bizAmount;
+        todayFailed += bizFailed;
+        businessSummaries.push({ name: p.name, status: canPay ? 'active' : 'blocked', payments: bizCount, amount: (bizAmount / 100).toFixed(2), failed: bizFailed });
+      } else {
+        businessSummaries.push({ name: p.name, status: canPay ? 'active' : 'blocked', payments: 0, amount: '0.00' });
+      }
+
+      // Active subscriptions count
+      try {
+        const subRes = await squarePost(token, '/v2/subscriptions/search', { query: { filter: { location_ids: [p.location_id] } } });
+        if (subRes.status === 200) {
+          activeSubs += (subRes.body.subscriptions || []).filter(s => s.status === 'ACTIVE' || s.status === 'PENDING').length;
+        }
+      } catch (_) {}
+
+    } catch (e) {
+      businessSummaries.push({ name: p.name, status: 'error', error: e.message });
+    }
+  }
+
+  // Unread notifications count
+  const unreadCount = dbGet("SELECT COUNT(*) as count FROM notifications WHERE read = 0").count;
+  // Recent notifications
+  const recentNotifs = dbAll("SELECT * FROM notifications ORDER BY created_at DESC LIMIT 5");
+
+  res.json({
+    totalProfiles: profiles.length,
+    totalActive, totalBlocked,
+    today: { payments: todayPayments, amount: (todayAmount / 100).toFixed(2), failed: todayFailed },
+    activeSubs,
+    unreadNotifications: unreadCount,
+    recentNotifications: recentNotifs,
+    businesses: businessSummaries,
+  });
+});
+
 // GET real payments from Square for active location
 app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
