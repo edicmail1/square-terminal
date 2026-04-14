@@ -1013,34 +1013,93 @@
     </div>
 
     <div class="section-title">➕ Create Location</div>
-    <div class="field">
-      <label>Name <span class="req">*</span></label>
-      <input type="text" id="loc-name" placeholder="e.g. Downtown Branch" />
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1e40af;line-height:1.6">
+      💡 <strong>Заполняйте максимум полей</strong> — Visa/MC и банки проверяют: название, сайт, телефон, адрес, MCC. Чем больше данных — тем выше approval rate.
+    </div>
+    <div class="row">
+      <div class="field" style="flex:1">
+        <label>Location Name <span class="req">*</span></label>
+        <input type="text" id="loc-name" placeholder="e.g. Downtown Branch" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>Business Name <span style="color:#6b7280;font-size:11px;">(на чеках/выписках)</span></label>
+        <input type="text" id="loc-biz-name" placeholder="What customer sees in bank statement" />
+      </div>
     </div>
     <div class="field">
-      <label>Description (optional)</label>
-      <input type="text" id="loc-desc" placeholder="Additional info..." />
+      <label>MCC Code (Business Category) <span style="color:#059669;font-size:11px;">— влияет на approval rate</span></label>
+      <select id="loc-mcc" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+        <option value="">— Default (Square assigns) —</option>
+        <optgroup label="🟢 Best approval rate (Food & Retail)">
+          <option value="5812">5812 — Restaurants</option>
+          <option value="5814">5814 — Fast Food</option>
+          <option value="5811">5811 — Caterers</option>
+          <option value="5499">5499 — Food Stores & Markets</option>
+          <option value="5411">5411 — Grocery Stores</option>
+          <option value="5462">5462 — Bakeries</option>
+          <option value="5999">5999 — Retail Stores</option>
+          <option value="5691">5691 — Clothing Stores</option>
+          <option value="5944">5944 — Jewelry Stores</option>
+        </optgroup>
+        <optgroup label="🟡 Good approval rate (Services)">
+          <option value="7230">7230 — Beauty & Barber Shops</option>
+          <option value="7298">7298 — Health & Spa</option>
+          <option value="7210">7210 — Laundry & Cleaning</option>
+          <option value="7349">7349 — Cleaning & Maintenance</option>
+          <option value="7538">7538 — Auto Service Shops</option>
+          <option value="8021">8021 — Dentists</option>
+          <option value="8011">8011 — Doctors</option>
+          <option value="8111">8111 — Legal Services</option>
+          <option value="8351">8351 — Child Care</option>
+          <option value="8299">8299 — Educational Services</option>
+        </optgroup>
+        <optgroup label="🟡 Medium (Professional & Tech)">
+          <option value="7372">7372 — Software & Programming</option>
+          <option value="7392">7392 — Management Consulting</option>
+          <option value="7399">7399 — Business Services</option>
+          <option value="8931">8931 — Accounting & Bookkeeping</option>
+          <option value="8999">8999 — Professional Services</option>
+        </optgroup>
+      </select>
     </div>
     <div class="field">
-      <label>Address (optional)</label>
+      <label>Description</label>
+      <input type="text" id="loc-desc" placeholder="What the business does — helps Visa/MC trust" />
+    </div>
+    <div class="row">
+      <div class="field" style="flex:1">
+        <label>Phone <span style="color:#059669;font-size:11px;">— Visa requires</span></label>
+        <input type="text" id="loc-phone" placeholder="+1 555-000-0000" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>Business Email</label>
+        <input type="email" id="loc-email" placeholder="info@business.com" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Website <span style="color:#059669;font-size:11px;">— Visa requires</span></label>
+      <input type="text" id="loc-website" placeholder="https://yourbusiness.com" />
+    </div>
+    <div class="field">
+      <label>Address <span style="color:#059669;font-size:11px;">— Visa requires for card-present</span></label>
       <input type="text" id="loc-addr" placeholder="123 Main St" />
     </div>
     <div class="row">
-      <div class="field">
+      <div class="field" style="flex:2">
         <label>City</label>
         <input type="text" id="loc-city" placeholder="New York" />
       </div>
-      <div class="field">
+      <div class="field" style="flex:1">
         <label>State</label>
-        <input type="text" id="loc-state" placeholder="NY" maxlength="2" />
+        <input type="text" id="loc-state" placeholder="NY" maxlength="2" style="text-transform:uppercase" />
       </div>
-    </div>
-    <div class="row">
-      <div class="field">
+      <div class="field" style="flex:1">
         <label>ZIP</label>
         <input type="text" id="loc-zip" placeholder="10001" />
       </div>
-      <div class="field">
+    </div>
+    <div class="row">
+      <div class="field" style="flex:1">
         <label>Timezone</label>
         <select id="loc-tz">
           <option value="America/New_York">Eastern (ET)</option>
@@ -1049,6 +1108,13 @@
           <option value="America/Los_Angeles">Pacific (PT)</option>
           <option value="America/Anchorage">Alaska</option>
           <option value="Pacific/Honolulu">Hawaii</option>
+        </select>
+      </div>
+      <div class="field" style="flex:1">
+        <label>Type</label>
+        <select id="loc-type">
+          <option value="PHYSICAL">Physical (store/office)</option>
+          <option value="MOBILE">Mobile (delivery/service)</option>
         </select>
       </div>
     </div>
@@ -2322,15 +2388,21 @@ async function saveLocation() {
 }
 
 async function createLocation() {
-  const name    = document.getElementById('loc-name').value.trim();
-  const desc    = document.getElementById('loc-desc').value.trim();
-  const addr    = document.getElementById('loc-addr').value.trim();
-  const city    = document.getElementById('loc-city').value.trim();
-  const state   = document.getElementById('loc-state').value.trim();
-  const zip     = document.getElementById('loc-zip').value.trim();
-  const tz      = document.getElementById('loc-tz').value;
-  const btn     = document.getElementById('btn-create-loc');
-  const result  = document.getElementById('result-locations');
+  const name     = document.getElementById('loc-name').value.trim();
+  const bizName  = document.getElementById('loc-biz-name').value.trim();
+  const mcc      = document.getElementById('loc-mcc').value;
+  const desc     = document.getElementById('loc-desc').value.trim();
+  const phone    = document.getElementById('loc-phone').value.trim();
+  const email    = document.getElementById('loc-email').value.trim();
+  const website  = document.getElementById('loc-website').value.trim();
+  const addr     = document.getElementById('loc-addr').value.trim();
+  const city     = document.getElementById('loc-city').value.trim();
+  const state    = document.getElementById('loc-state').value.trim().toUpperCase();
+  const zip      = document.getElementById('loc-zip').value.trim();
+  const tz       = document.getElementById('loc-tz').value;
+  const locType  = document.getElementById('loc-type').value;
+  const btn      = document.getElementById('btn-create-loc');
+  const result   = document.getElementById('result-locations');
 
   if (!name) { showResult(result, 'error', 'Location name is required.'); return; }
 
@@ -2338,15 +2410,24 @@ async function createLocation() {
   btn.innerHTML = '<span class="spinner"></span>Creating...';
   result.style.display = 'none';
 
+  const body = { name, description: desc, address_line_1: addr, city, state, postal_code: zip, timezone: tz };
+  if (bizName) body.business_name = bizName;
+  if (mcc) body.mcc = mcc;
+  if (phone) body.phone_number = phone;
+  if (email) body.business_email = email;
+  if (website) body.website_url = website;
+  if (locType) body.type = locType;
+
   const res = await fetch(`/api/profiles/${profilesData.activeId}/locations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description: desc, address_line_1: addr, city, state, postal_code: zip, timezone: tz }),
+    body: JSON.stringify(body),
   }).then(r => r.json());
 
   if (res.success) {
-    showResult(result, 'success', `✅ Location "${res.location.name}" created! ID: ${res.location.id}`);
-    ['loc-name','loc-desc','loc-addr','loc-city','loc-state','loc-zip'].forEach(id => document.getElementById(id).value = '');
+    showResult(result, 'success', `✅ Location "${res.location.name}" created! ID: ${res.location.id}${res.location.mcc ? ' · MCC: ' + res.location.mcc : ''}`);
+    ['loc-name','loc-biz-name','loc-desc','loc-phone','loc-email','loc-website','loc-addr','loc-city','loc-state','loc-zip'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('loc-mcc').value = '';
     loadLocations();
   } else {
     showResult(result, 'error', '❌ ' + (res.error || 'Failed to create location'));

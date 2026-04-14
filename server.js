@@ -1140,15 +1140,19 @@ app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
 app.post('/api/profiles/:id/locations', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { name, address_line_1, city, state, postal_code, timezone, description } = req.body;
+  const { name, business_name, mcc, description, phone_number, business_email, website_url, address_line_1, city, state, postal_code, timezone, type } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
-  const r = await safeSquareCall(profile, (token) =>
-    squarePost(token, '/v2/locations', {
-      location: { name, description, timezone: timezone || 'America/New_York',
-        ...(address_line_1 ? { address: { address_line_1, locality: city, administrative_district_level_1: state, postal_code, country: 'US' } } : {})
-      }
-    })
-  );
+  const location = {
+    name, description, timezone: timezone || 'America/New_York',
+    ...(business_name ? { business_name } : {}),
+    ...(mcc ? { mcc } : {}),
+    ...(phone_number ? { phone_number } : {}),
+    ...(business_email ? { business_email } : {}),
+    ...(website_url ? { website_url } : {}),
+    ...(type ? { type } : {}),
+    ...(address_line_1 ? { address: { address_line_1, locality: city, administrative_district_level_1: state, postal_code, country: 'US' } } : {}),
+  };
+  const r = await safeSquareCall(profile, (token) => squarePost(token, '/v2/locations', { location }));
   if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
   res.json({ success: true, location: r.body.location });
