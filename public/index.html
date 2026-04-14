@@ -2648,8 +2648,7 @@ async function processRefund(paymentId, fullAmount) {
   if (!profilesData?.activeId) { showResult(result, 'error', 'No active profile'); return; }
   showResult(result, 'info', 'Processing refund...');
   try {
-    const body = { paymentId };
-    if (amount) body.amount = amount;
+    const body = { paymentId, amount: amount || fullAmount };
     if (reason) body.reason = reason;
     const r = await fetch(`/api/profiles/${profilesData.activeId}/refund`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
