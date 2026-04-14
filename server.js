@@ -1101,7 +1101,7 @@ app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
 
   const { name, business_name, description, address_line_1, city, state, postal_code, country,
           phone_number, business_email, website_url, timezone,
-          instagram_username, twitter_username, facebook_url } = req.body;
+          instagram_username, twitter_username, facebook_url, mcc } = req.body;
 
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
@@ -1117,6 +1117,7 @@ app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
       instagram_username: instagram_username || undefined,
       twitter_username:   twitter_username   || undefined,
       facebook_url:       facebook_url       || undefined,
+      mcc:                mcc                || undefined,
       ...(address_line_1 ? {
         address: {
           address_line_1,
@@ -1989,7 +1990,7 @@ app.post('/api/profiles/:id/quick-charge', requireAuth, async (req, res) => {
 
 // Charge
 app.post('/api/charge', requireAuth, async (req, res) => {
-  const { sourceId, amount, currency, note, buyerEmail, verificationToken, authorizeOnly } = req.body;
+  const { sourceId, amount, currency, note, buyerEmail, verificationToken, authorizeOnly, customerId } = req.body;
   if (!sourceId || !amount) return res.status(400).json({ error: 'sourceId and amount required' });
   const profile = getActiveProfile();
   if (!profile) return res.status(400).json({ error: 'No active profile' });
@@ -2003,6 +2004,7 @@ app.post('/api/charge', requireAuth, async (req, res) => {
       locationId: profile.location_id, note: note || '',
       buyerEmailAddress: buyerEmail || undefined,
       verificationToken: verificationToken || undefined,
+      customerId: customerId || undefined,
     };
     if (authorizeOnly) {
       paymentBody.autocomplete = false;

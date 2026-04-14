@@ -407,8 +407,12 @@
       <div class="field-error" id="err-m-note"></div>
     </div>
     <div class="field">
-      <label>Customer Name (optional)</label>
-      <input type="text" id="m-name" placeholder="John Smith" />
+      <label>Customer <span style="color:#6b7280;font-weight:400;font-size:11px;">(improves approval rate)</span></label>
+      <div style="position:relative;">
+        <input type="text" id="m-name" placeholder="Search or enter customer name..." oninput="searchManualCustomers(this.value)" autocomplete="off" />
+        <div id="m-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+      </div>
+      <input type="hidden" id="m-customer-id" />
     </div>
     <div class="field">
       <label>Customer Email <span class="req">*</span></label>
@@ -416,9 +420,23 @@
       <div class="field-error" id="err-m-email"></div>
     </div>
     <div class="field">
-      <label>ZIP Code <span class="req">*</span></label>
-      <input type="text" id="m-zip" placeholder="10001" maxlength="10" style="max-width:160px" />
-      <div class="field-error" id="err-m-zip"></div>
+      <label>Billing Address (optional but improves approval)</label>
+      <input type="text" id="m-address" placeholder="123 Main St" />
+    </div>
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label>City</label>
+        <input type="text" id="m-city" placeholder="New York" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>State</label>
+        <input type="text" id="m-state" placeholder="NY" maxlength="2" style="text-transform:uppercase" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>ZIP <span class="req">*</span></label>
+        <input type="text" id="m-zip" placeholder="10001" maxlength="10" />
+        <div class="field-error" id="err-m-zip"></div>
+      </div>
     </div>
     <div class="field">
       <label>Card</label>
@@ -919,6 +937,54 @@
           <label>ZIP</label>
           <input type="text" id="ledit-zip" placeholder="10001" />
         </div>
+      </div>
+      <div class="field">
+        <label>MCC Code (Business Category) <span style="color:#6b7280;font-weight:400;font-size:11px;">— влияет на approval rate</span></label>
+        <select id="ledit-mcc" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+          <option value="">— Keep current —</option>
+          <optgroup label="🟢 Best approval rate (Food & Retail)">
+            <option value="5812">5812 — Restaurants</option>
+            <option value="5814">5814 — Fast Food</option>
+            <option value="5811">5811 — Caterers</option>
+            <option value="5499">5499 — Food Stores & Markets</option>
+            <option value="5411">5411 — Grocery Stores</option>
+            <option value="5462">5462 — Bakeries</option>
+            <option value="5999">5999 — Retail Stores</option>
+            <option value="5691">5691 — Clothing Stores</option>
+            <option value="5944">5944 — Jewelry Stores</option>
+          </optgroup>
+          <optgroup label="🟡 Good approval rate (Services)">
+            <option value="7230">7230 — Beauty & Barber Shops</option>
+            <option value="7298">7298 — Health & Spa</option>
+            <option value="7261">7261 — Funeral Services</option>
+            <option value="7210">7210 — Laundry & Cleaning</option>
+            <option value="7349">7349 — Cleaning & Maintenance</option>
+            <option value="7538">7538 — Auto Service Shops</option>
+            <option value="8021">8021 — Dentists</option>
+            <option value="8011">8011 — Doctors</option>
+            <option value="8111">8111 — Legal Services</option>
+            <option value="8351">8351 — Child Care</option>
+            <option value="8299">8299 — Educational Services</option>
+          </optgroup>
+          <optgroup label="🟡 Medium (Professional & Tech)">
+            <option value="7372">7372 — Software & Programming</option>
+            <option value="7392">7392 — Management Consulting</option>
+            <option value="7399">7399 — Business Services</option>
+            <option value="8931">8931 — Accounting & Bookkeeping</option>
+            <option value="8911">8911 — Architectural & Engineering</option>
+            <option value="8999">8999 — Professional Services</option>
+            <option value="7311">7311 — Advertising Services</option>
+          </optgroup>
+          <optgroup label="🟠 Higher scrutiny">
+            <option value="5966">5966 — Direct Marketing — Outbound</option>
+            <option value="5968">5968 — Direct Marketing — Subscriptions</option>
+            <option value="5969">5969 — Direct Marketing — Other</option>
+            <option value="7011">7011 — Hotels & Motels</option>
+            <option value="4722">4722 — Travel Agencies</option>
+            <option value="6513">6513 — Real Estate</option>
+          </optgroup>
+        </select>
+        <div class="hint">Current MCC shown in profile. Restaurants/Food = best approval rates.</div>
       </div>
       <div class="row">
         <div class="field">
@@ -2226,6 +2292,7 @@ async function saveLocation() {
     instagram_username: document.getElementById('ledit-instagram').value.trim(),
     twitter_username:   document.getElementById('ledit-twitter').value.trim(),
     facebook_url:       document.getElementById('ledit-facebook').value.trim(),
+    mcc:                document.getElementById('ledit-mcc').value,
   };
 
   if (!body.name) { showResult(result, 'error', 'Name is required'); return; }
@@ -2298,16 +2365,52 @@ function fieldError(id, msg) {
   if (err) err.textContent = msg;
 }
 
+// ── Manual Entry Customer Search ──────────────────────────────────────────────────────
+let manualCustSearchTimeout = null;
+function searchManualCustomers(query) {
+  clearTimeout(manualCustSearchTimeout);
+  const results = document.getElementById('m-customer-results');
+  if (query.length < 2) { results.style.display = 'none'; return; }
+  manualCustSearchTimeout = setTimeout(async () => {
+    if (!profilesData?.activeId) return;
+    try {
+      const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
+      if (!r.headers.get('content-type')?.includes('json')) return;
+      const data = await r.json();
+      const customers = data.customers || [];
+      if (!customers.length) { results.innerHTML = '<div style="padding:8px 12px;color:#6b7280;font-size:12px;">No match — name will be used as-is</div>'; results.style.display = 'block'; return; }
+      results.innerHTML = customers.slice(0, 6).map(c => {
+        const cname = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+        return `<div onclick="selectManualCustomer('${c.id}','${cname.replace(/'/g, "\\'")}','${c.emailAddress || c.email || ''}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${cname} <span style="color:#9ca3af">${c.emailAddress || c.email || ''}</span></div>`;
+      }).join('');
+      results.style.display = 'block';
+    } catch (_) { results.style.display = 'none'; }
+  }, 300);
+}
+
+function selectManualCustomer(id, name, email) {
+  document.getElementById('m-customer-id').value = id;
+  document.getElementById('m-name').value = name;
+  document.getElementById('m-customer-results').style.display = 'none';
+  if (email && !document.getElementById('m-email').value) {
+    document.getElementById('m-email').value = email;
+  }
+}
+
 // ── Charge ───────────────────────────────────────────────────────────────────────────
 async function chargeCard() {
   clearErrors();
-  const amount = document.getElementById('m-amount').value;
-  const note   = document.getElementById('m-note').value.trim();
-  const name   = document.getElementById('m-name').value.trim();
-  const email  = document.getElementById('m-email').value.trim();
-  const zip    = document.getElementById('m-zip').value.trim();
-  const btn    = document.getElementById('btn-charge');
-  const result = document.getElementById('result-manual');
+  const amount  = document.getElementById('m-amount').value;
+  const note    = document.getElementById('m-note').value.trim();
+  const name    = document.getElementById('m-name').value.trim();
+  const email   = document.getElementById('m-email').value.trim();
+  const address = document.getElementById('m-address').value.trim();
+  const city    = document.getElementById('m-city').value.trim();
+  const state   = document.getElementById('m-state').value.trim().toUpperCase();
+  const zip     = document.getElementById('m-zip').value.trim();
+  const custId  = document.getElementById('m-customer-id')?.value || '';
+  const btn     = document.getElementById('btn-charge');
+  const result  = document.getElementById('result-manual');
 
   let valid = true;
   if (!amount || parseFloat(amount) <= 0) { fieldError('m-amount', 'Required'); valid = false; }
@@ -2328,7 +2431,13 @@ async function chargeCard() {
     const verifyResult = await payments.verifyBuyer(tokenResult.token, {
       intent: 'CHARGE', customerInitiated: true, sellerKeyedIn: true,
       amount: parseFloat(amount).toFixed(2), currencyCode: 'USD',
-      billingContact: { postalCode: zip },
+      billingContact: {
+        postalCode: zip,
+        ...(address ? { addressLines: [address] } : {}),
+        ...(city ? { city } : {}),
+        ...(state ? { state } : {}),
+        ...(name ? { givenName: name.split(' ')[0], familyName: name.split(' ').slice(1).join(' ') || '' } : {}),
+      },
     });
 
     const res = await fetch('/api/charge', {
@@ -2340,6 +2449,7 @@ async function chargeCard() {
         amount, currency: 'USD',
         note: [name, note].filter(Boolean).join(' — '),
         buyerEmail: email,
+        customerId: custId || undefined,
         authorizeOnly: document.getElementById('m-authorize-only').checked,
       }),
     }).then(r => r.json());
@@ -2351,7 +2461,7 @@ async function chargeCard() {
         ? `🔒 Authorized $${parseFloat(amount).toFixed(2)} — capture from History tab<br>ID: ${res.paymentId}`
         : `✅ Payment successful!<br>ID: ${res.paymentId}${receipt}`);
       // Clear form
-      ['m-amount','m-note','m-name','m-email','m-zip'].forEach(id => document.getElementById(id).value = '');
+      ['m-amount','m-note','m-name','m-email','m-address','m-city','m-state','m-zip','m-customer-id'].forEach(id => document.getElementById(id).value = '');
     } else {
       const err = res.errors?.[0];
       const code = err?.code;
