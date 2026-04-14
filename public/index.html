@@ -1831,7 +1831,7 @@ async function fetchHistory(append) {
             ${(p.billingName && p.shippingName && p.billingName !== p.shippingName) ? `<span style="color:#ef4444;font-weight:600">⚠ Billing ≠ Shipping</span>` : ''}
           </div>
         </div>` : ''}
-      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${(p.status === 'COMPLETED' && !isFullyRefunded && p.delayAction !== 'CANCEL') ? ` · <span onclick="toggleRefundForm('${p.id}',${(Number(p.amount?.amount||0)/100).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund${isPartiallyRefunded ? ' more' : ''}</span>` : ''}${p.delayAction === 'CANCEL' ? ' · <span style="color:#6b7280;font-size:11px;">⏳ Pending capture</span>' : ''}</div>
+      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${(p.status === 'COMPLETED' && !isFullyRefunded && p.delayAction !== 'CANCEL') ? ` · <span onclick="toggleRefundForm('${p.id}',${(Number(p.amount?.amount||0)/100).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund${isPartiallyRefunded ? ' more' : ''}</span>` : ''}${p.delayAction === 'CANCEL' ? ` · <span style="color:#6b7280;font-size:11px;">⏳ Pending capture</span> · <span onclick="completePayment('${p.id}')" style="color:#059669;font-size:12px;cursor:pointer;font-weight:600;">✅ Complete</span> · <span onclick="cancelPayment('${p.id}')" style="color:#dc2626;font-size:12px;cursor:pointer;font-weight:600;">❌ Cancel</span>` : ''}</div>
       <div id="refund-form-${p.id}" style="display:none;margin-top:6px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
         <div style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:6px;">
           <label><input type="radio" name="refund-type-${p.id}" value="full" checked onchange="document.getElementById('refund-partial-${p.id}').style.display='none'"> Full ($${(Number(p.amount?.amount||0)/100).toFixed(2)})</label>
@@ -2634,6 +2634,32 @@ function loadPayoutsMore() {
 
 
 // ── Refunds ───────────────────────────────────────────────────────────────────────────
+async function completePayment(paymentId) {
+  if (!confirm('Complete this payment? Funds will be captured from the card.')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/payments/${paymentId}/complete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    alert(`✅ Payment completed! Status: ${data.payment.status}`);
+    loadHistory();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function cancelPayment(paymentId) {
+  if (!confirm('Cancel this payment? Authorization will be voided and funds released back to customer.')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/payments/${paymentId}/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    alert(`✅ Payment canceled! Funds released. Status: ${data.payment.status}`);
+    loadHistory();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
 function toggleRefundForm(paymentId) {
   const form = document.getElementById(`refund-form-${paymentId}`);
   form.style.display = form.style.display === 'none' ? 'block' : 'none';

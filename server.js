@@ -1892,6 +1892,28 @@ app.post('/api/poll-subscriptions', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// Complete payment (capture pending authorization)
+app.post('/api/profiles/:id/payments/:paymentId/complete', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, `/v2/payments/${req.params.paymentId}/complete`, {});
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to complete payment' });
+  res.json({ success: true, payment: { id: r.body.payment.id, status: r.body.payment.status } });
+});
+
+// Cancel payment (void pending authorization)
+app.post('/api/profiles/:id/payments/:paymentId/cancel', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, `/v2/payments/${req.params.paymentId}/cancel`, {});
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to cancel payment' });
+  res.json({ success: true, payment: { id: r.body.payment.id, status: r.body.payment.status } });
+});
+
 // Refund payment (full or partial)
 app.post('/api/profiles/:id/refund', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
