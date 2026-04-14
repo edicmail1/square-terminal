@@ -1307,8 +1307,9 @@ async function init() {
     document.getElementById('oauth-connect-block').style.display = 'block';
   }
   await loadProfiles();
-  await loadLinkLocations();
-  // Square.js NOT loaded here — only when user opens Manual Entry
+  // Restore last tab or default to link
+  const lastTab = localStorage.getItem('lastTab') || 'link';
+  switchTab(lastTab);
 }
 
 function loadSquareJs() {
@@ -2102,6 +2103,7 @@ async function fetchHistory(append) {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
+  try { localStorage.setItem('lastTab', tab); } catch (_) {}
   document.querySelectorAll('.tab').forEach((t, i) => {
     t.classList.toggle('active',
       (i === 0 && tab === 'manual') || (i === 1 && tab === 'quick') ||
@@ -3273,6 +3275,27 @@ async function createPlan() {
   } catch (e) { showResult(result, 'error', e.message); }
 }
 
+async function genSubLink(variationId) {
+  const el = document.getElementById(`sub-link-${variationId}`);
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:#6b7280;font-size:12px;">Generating link...</span>';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscription-link`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ planVariationId: variationId }),
+    });
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.includes('json')) { el.innerHTML = '<span style="color:#ef4444;font-size:12px;">Server error</span>'; return; }
+    const data = await r.json();
+    if (data.error) { el.innerHTML = `<span style="color:#ef4444;font-size:12px;">${data.error}</span>`; return; }
+    el.innerHTML = `<div style="display:flex;gap:6px;align-items:center;font-size:12px;">
+      <input type="text" value="${data.url}" readonly style="flex:1;padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:11px;" onclick="this.select()" />
+      <button onclick="navigator.clipboard.writeText('${data.url}');this.textContent='✅';setTimeout(()=>this.textContent='Copy',1500)" style="background:#006AFF;color:white;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer;">Copy</button>
+      <a href="${data.url}" target="_blank" style="color:#006AFF;font-size:11px;white-space:nowrap;">Open ↗</a>
+    </div>`;
+  } catch (e) { el.innerHTML = `<span style="color:#ef4444;font-size:12px;">${e.message}</span>`; }
+}
+
 async function loadPlans() {
   const list = document.getElementById('plans-list');
   const planSelect = document.getElementById('newsub-plan');
@@ -3291,10 +3314,14 @@ async function loadPlans() {
     }
     list.innerHTML = plans.map(p => {
       const vars = p.variations || [];
-      return vars.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f3f4f6;">
-        <span><strong>${p.name}</strong> — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}</span>
-        <span style="color:#9ca3af;font-size:10px;">${v.id.slice(0, 16)}…</span>
-      </div>`).join('');
+      return vars.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6;gap:8px;">
+        <span><strong>${p.name}</strong> — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}${v.periods ? ' ×' + v.periods : ''}</span>
+        <div style="display:flex;gap:4px;align-items:center;">
+          <button onclick="genSubLink('${v.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;white-space:nowrap;">🔗 Link</button>
+          <span style="color:#9ca3af;font-size:10px;">${v.id.slice(0, 12)}…</span>
+        </div>
+      </div>
+      <div id="sub-link-${v.id}" style="display:none;padding:4px 0 8px;"></div>`).join('');
     }).join('');
     // Populate plan select for new subscription
     planSelect.innerHTML = plans.flatMap(p => (p.variations || []).map(v =>

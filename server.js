@@ -2292,6 +2292,25 @@ app.post('/api/charge', requireAuth, async (req, res) => {
   }
 });
 
+// Subscription Payment Link
+app.post('/api/profiles/:id/subscription-link', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { planVariationId } = req.body;
+  if (!planVariationId) return res.status(400).json({ error: 'planVariationId required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const r = await squarePost(accessToken, '/v2/online-checkout/payment-links', {
+    idempotency_key: crypto.randomUUID(),
+    checkout_options: {
+      subscription_plan_id: planVariationId,
+    },
+  });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription link' });
+  const link = r.body.payment_link;
+  res.json({ success: true, url: link.url, longUrl: link.long_url, linkId: link.id });
+});
+
 // Payment Link
 app.post('/api/payment-link', requireAuth, async (req, res) => {
   const { amount, currency, title, description, locationId } = req.body;
