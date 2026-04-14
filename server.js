@@ -1553,7 +1553,7 @@ app.delete('/api/profiles/:id/cards/:cardId', requireAuth, async (req, res) => {
 
 // ── Subscription Plans ────────────────────────────────────────────────────────
 
-// Create subscription plan (2 steps: plan → variation)
+// Create subscription plan (3 steps: catalog item → plan → variation)
 app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
@@ -1562,28 +1562,62 @@ app.post('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
   const periodsInt = periods ? parseInt(periods) : null;
+  const ts = Date.now();
 
-  // Step 1: Create the subscription plan via batch-upsert
+  // Step 1: Create Catalog Item (so plan is NOT legacy)
+  const itemRes = await squarePost(accessToken, '/v2/catalog/batch-upsert', {
+    idempotency_key: crypto.randomUUID(),
+    batches: [{ objects: [{
+      type: 'ITEM',
+      id: '#item_' + ts,
+      item_data: {
+        name,
+        product_type: 'REGULAR',
+        variations: [{
+          type: 'ITEM_VARIATION',
+          id: '#itemvar_' + ts,
+          item_variation_data: {
+            name: 'Default',
+            pricing_type: 'FIXED_PRICING',
+            price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' },
+          },
+        }],
+      },
+    }] }],
+  });
+  let itemId = null;
+  if (itemRes.status === 200) {
+    itemId = itemRes.body.objects?.find(o => o.type === 'ITEM')?.id || null;
+  }
+
+  // Step 2: Create the subscription plan linked to item
+  const planData = { name };
+  if (itemId) {
+    planData.eligible_item_ids = [itemId];
+    planData.all_items = false;
+  } else {
+    planData.all_items = true; // fallback if item creation failed
+  }
   const planRes = await squarePost(accessToken, '/v2/catalog/batch-upsert', {
     idempotency_key: crypto.randomUUID(),
     batches: [{ objects: [{
       type: 'SUBSCRIPTION_PLAN',
-      id: '#plan_' + Date.now(),
-      subscription_plan_data: { name, all_items: true },
+      id: '#plan_' + ts,
+      subscription_plan_data: planData,
     }] }],
   });
   if (planRes.status !== 200) return res.status(planRes.status).json({ error: planRes.body?.errors?.[0]?.detail || 'Failed to create plan', debug: planRes.body });
   const realPlanId = planRes.body.objects?.[0]?.id;
   if (!realPlanId) return res.status(500).json({ error: 'Plan created but no ID returned', debug: planRes.body });
 
-  // Step 2: Create the variation linked to the plan via batch-upsert
+  // Step 3: Create the variation linked to the plan
   const phase = { cadence, ordinal: 0, pricing: { type: 'STATIC', price_money: { amount: Math.round(parseFloat(amount) * 100), currency: currency || 'USD' } } };
   if (periodsInt) phase.periods = periodsInt;
   const varRes = await squarePost(accessToken, '/v2/catalog/batch-upsert', {
     idempotency_key: crypto.randomUUID(),
     batches: [{ objects: [{
       type: 'SUBSCRIPTION_PLAN_VARIATION',
-      id: '#var_' + Date.now(),
+      id: '#var_' + ts,
       subscription_plan_variation_data: {
         name: `${name} — ${cadence.toLowerCase().replace(/_/g, ' ')}${periodsInt ? ' ×' + periodsInt : ''}`,
         subscription_plan_id: realPlanId,
