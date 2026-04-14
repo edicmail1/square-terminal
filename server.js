@@ -642,6 +642,8 @@ app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
 
   // Fetch customer names for payments
   const allPayments = r.body.payments || [];
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
   const custIds = [...new Set(allPayments.map(p => p.customer_id).filter(Boolean))];
   const custNames = {};
   if (custIds.length > 0) {
