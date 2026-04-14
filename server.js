@@ -641,30 +641,38 @@ app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
 
   // Fetch customer names for payments
-  const custIds = [...new Set((r.body.payments || []).map(p => p.customer_id).filter(Boolean))];
+  const allPayments = r.body.payments || [];
+  const custIds = [...new Set(allPayments.map(p => p.customer_id).filter(Boolean))];
   const custNames = {};
   if (custIds.length > 0) {
-    await Promise.all(custIds.map(async cid => {
+    const results = await Promise.all(custIds.map(async cid => {
       try {
         const cr = await squareGet(accessToken, `/v2/customers/${cid}`);
         if (cr.status === 200) {
           const c = cr.body.customer;
-          custNames[cid] = { name: [c.given_name, c.family_name].filter(Boolean).join(' ') || '', email: c.email_address || '' };
+          return [cid, { name: [c.given_name, c.family_name].filter(Boolean).join(' ') || '', email: c.email_address || '' }];
         }
       } catch (_) {}
+      return [cid, { name: '', email: '' }];
     }));
+    for (const [cid, info] of results) custNames[cid] = info;
   }
 
-  const payments = (r.body.payments || []).map(p => {
+  const payments = allPayments.map(p => {
     const card = p.card_details?.card || {};
     const cd   = p.card_details || {};
-    // Determine payment type
+    const entryMethod = cd.entry_method || '';
+    const squareProduct = p.application_details?.square_product || '';
+    // Determine payment type by entry_method + square_product
     let paymentType = '💳 Manual Entry';
     if (p.subscription_id) paymentType = '🔄 Subscription';
-    else if (p.source_type === 'CARD' && card.id) paymentType = '⚡ Quick Charge';
-    else if (p.application_details?.square_product === 'ONLINE_STORE' || p.application_details?.square_product === 'ECOMMERCE_API') paymentType = '🔗 Payment Link';
-    else if (p.application_details?.square_product === 'INVOICES') paymentType = '📄 Invoice';
-    else if (p.application_details?.square_product === 'VIRTUAL_TERMINAL') paymentType = '💻 Terminal';
+    else if (squareProduct === 'INVOICES') paymentType = '📄 Invoice';
+    else if (squareProduct === 'ONLINE_STORE' || squareProduct === 'ECOMMERCE_API') paymentType = '🔗 Payment Link';
+    else if (squareProduct === 'VIRTUAL_TERMINAL') paymentType = '💻 Terminal';
+    else if (entryMethod === 'ON_FILE' && squareProduct === 'OTHER') paymentType = '🔄 Subscription / Card on File';
+    else if (entryMethod === 'ON_FILE') paymentType = '⚡ Card on File';
+    else if (squareProduct === 'OTHER' && entryMethod === 'KEYED') paymentType = '💳 Manual Entry';
+    else if (entryMethod === 'KEYED') paymentType = '💳 Manual Entry';
     const cust = custNames[p.customer_id] || {};
     return {
       id:            p.id,
