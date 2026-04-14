@@ -1939,11 +1939,14 @@ async function fetchHistory(append) {
 
     return `
     <div class="tx-item ${itemClass}">
-      <div class="tx-row">
+      <div class="tx-row" style="flex-wrap:wrap;gap:4px;">
         <div class="tx-amount">$${amt} <span style="font-size:11px;font-weight:400;color:#6b7280">${p.currency || ''}</span></div>
         <span style="font-size:11px;font-weight:700;color:${statusColor}">${p.status}</span>
-        ${isFullyRefunded ? `<span style="font-size:10px;font-weight:700;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:10px;margin-left:4px;">REFUNDED $${(refundedCents/100).toFixed(2)}</span>` : ''}
-        ${isPartiallyRefunded ? `<span style="font-size:10px;font-weight:700;color:#f59e0b;background:#fffbeb;padding:1px 6px;border-radius:10px;margin-left:4px;">PARTIAL REFUND $${(refundedCents/100).toFixed(2)}</span>` : ''}
+        ${isFullyRefunded ? `<span style="font-size:10px;font-weight:700;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:10px;">REFUNDED $${(refundedCents/100).toFixed(2)}</span>` : ''}
+        ${isPartiallyRefunded ? `<span style="font-size:10px;font-weight:700;color:#f59e0b;background:#fffbeb;padding:1px 6px;border-radius:10px;">PARTIAL REFUND $${(refundedCents/100).toFixed(2)}</span>` : ''}
+        ${p.customerName ? `<span style="font-size:11px;color:#374151;font-weight:600;">${p.customerName}</span>` : ''}
+        ${p.customerEmail || p.buyerEmail ? `<span style="font-size:11px;color:#6b7280;">${p.customerEmail || p.buyerEmail}</span>` : ''}
+        ${p.paymentType ? `<span style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:1px 6px;border-radius:10px;">${p.paymentType}</span>` : ''}
       </div>
       ${p.note ? `<div class="tx-note" style="margin-top:3px">${p.note}</div>` : ''}
       ${p.declineCode ? `

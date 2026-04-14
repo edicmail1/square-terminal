@@ -640,9 +640,32 @@ app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
   }
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
 
+  // Fetch customer names for payments
+  const custIds = [...new Set((r.body.payments || []).map(p => p.customer_id).filter(Boolean))];
+  const custNames = {};
+  if (custIds.length > 0) {
+    await Promise.all(custIds.map(async cid => {
+      try {
+        const cr = await squareGet(accessToken, `/v2/customers/${cid}`);
+        if (cr.status === 200) {
+          const c = cr.body.customer;
+          custNames[cid] = { name: [c.given_name, c.family_name].filter(Boolean).join(' ') || '', email: c.email_address || '' };
+        }
+      } catch (_) {}
+    }));
+  }
+
   const payments = (r.body.payments || []).map(p => {
     const card = p.card_details?.card || {};
     const cd   = p.card_details || {};
+    // Determine payment type
+    let paymentType = '💳 Manual Entry';
+    if (p.subscription_id) paymentType = '🔄 Subscription';
+    else if (p.source_type === 'CARD' && card.id) paymentType = '⚡ Quick Charge';
+    else if (p.application_details?.square_product === 'ONLINE_STORE' || p.application_details?.square_product === 'ECOMMERCE_API') paymentType = '🔗 Payment Link';
+    else if (p.application_details?.square_product === 'INVOICES') paymentType = '📄 Invoice';
+    else if (p.application_details?.square_product === 'VIRTUAL_TERMINAL') paymentType = '💻 Terminal';
+    const cust = custNames[p.customer_id] || {};
     return {
       id:            p.id,
       status:        p.status,
@@ -699,6 +722,10 @@ app.get('/api/profiles/:id/payments', requireAuth, async (req, res) => {
       refundedMoney: p.refunded_money || null,
       processingFee: p.processing_fee?.[0]?.amount_money || null,
       processingFeeType: p.processing_fee?.[0]?.type || null,
+      subscriptionId: p.subscription_id || null,
+      paymentType,
+      customerName: cust.name || '',
+      customerEmail: cust.email || '',
     };
   });
 
