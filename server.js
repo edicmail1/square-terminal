@@ -1844,6 +1844,19 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
     }
   }
 
+  // Fetch customer names for all subscriptions
+  const customerIds = [...new Set((subRes.body.subscriptions || []).map(s => s.customer_id).filter(Boolean))];
+  const customerLookup = {};
+  for (const cid of customerIds) {
+    try {
+      const cr = await squareGet(accessToken, `/v2/customers/${cid}`);
+      if (cr.status === 200) {
+        const c = cr.body.customer;
+        customerLookup[cid] = { name: [c.given_name, c.family_name].filter(Boolean).join(' ') || 'No name', email: c.email_address || '' };
+      }
+    } catch (_) {}
+  }
+
   const subs = (subRes.body.subscriptions || []).map(s => {
     const plan = varLookup[s.plan_variation_id] || {};
     // Calculate charges done based on start_date and charged_through_date
@@ -1869,6 +1882,8 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
 
     return {
       id: s.id, status: s.status, customerId: s.customer_id, cardId: s.card_id,
+      customerName: customerLookup[s.customer_id]?.name || '',
+      customerEmail: customerLookup[s.customer_id]?.email || '',
       planVariationId: s.plan_variation_id, startDate: s.start_date,
       chargedThroughDate: s.charged_through_date,
       canceledDate: s.canceled_date, createdAt: s.created_at,

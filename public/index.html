@@ -3330,7 +3330,7 @@ async function loadSubscriptionsList() {
               ${s.pricePerCharge ? `<span style="font-size:12px;font-weight:700;color:#111827;">$${s.pricePerCharge}/${(s.cadence || 'period').toLowerCase().replace(/_/g, ' ')}</span>` : ''}
             </div>
             <div style="font-size:11px;color:#6b7280;margin-top:3px;">
-              Customer: ${s.customerId.slice(0, 12)}… · ${s.cardId ? '💳 Card' : '📧 Invoice'}
+              ${s.customerName || s.customerId.slice(0, 12) + '…'}${s.customerEmail ? ' · ' + s.customerEmail : ''} · ${s.cardId ? '💳 Card' : '📧 Invoice'}
             </div>
             ${progressText ? `<div style="font-size:12px;font-weight:600;color:#111827;margin-top:3px;">📊 ${progressText}</div>` : ''}
             ${progressBar}
