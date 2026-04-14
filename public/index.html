@@ -424,6 +424,9 @@
       <label>Card</label>
       <div id="card-container"></div>
     </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <label style="font-size:13px;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="m-authorize-only" /> Authorize Only <span style="color:#6b7280;font-size:11px;">(capture later from History)</span></label>
+    </div>
     <button class="btn btn-primary" id="btn-charge" onclick="chargeCard()">Charge</button>
     <div class="result" id="result-manual"></div>
   </div>
@@ -460,6 +463,9 @@
         <label>Note (optional)</label>
         <input type="text" id="qc-note" placeholder="Delivery, service description..." />
       </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin:8px 0 4px;">
+      <label style="font-size:13px;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="qc-authorize-only" /> Authorize Only <span style="color:#6b7280;font-size:11px;">(capture later)</span></label>
     </div>
     <button class="btn btn-primary" onclick="quickCharge()" style="width:100%;margin-top:4px;">⚡ Charge</button>
     <div class="result" id="qc-result"></div>
@@ -2334,12 +2340,16 @@ async function chargeCard() {
         amount, currency: 'USD',
         note: [name, note].filter(Boolean).join(' — '),
         buyerEmail: email,
+        authorizeOnly: document.getElementById('m-authorize-only').checked,
       }),
     }).then(r => r.json());
 
     if (res.success) {
+      const isAuth = res.status === 'APPROVED';
       const receipt = res.receiptUrl ? ` <a href="${res.receiptUrl}" target="_blank" style="color:#065f46">View Receipt ↗</a>` : '';
-      showResult(result, 'success', `✅ Payment successful!<br>ID: ${res.paymentId}${receipt}`);
+      showResult(result, 'success', isAuth
+        ? `🔒 Authorized $${parseFloat(amount).toFixed(2)} — capture from History tab<br>ID: ${res.paymentId}`
+        : `✅ Payment successful!<br>ID: ${res.paymentId}${receipt}`);
       // Clear form
       ['m-amount','m-note','m-name','m-email','m-zip'].forEach(id => document.getElementById(id).value = '');
     } else {
@@ -2809,16 +2819,19 @@ async function quickCharge() {
   try {
     const r = await fetch(`/api/profiles/${profilesData.activeId}/quick-charge`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ customerId, cardId, amount: parseFloat(amount), note }),
+      body: JSON.stringify({ customerId, cardId, amount: parseFloat(amount), note, authorizeOnly: document.getElementById('qc-authorize-only').checked }),
     });
     const contentType = r.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) { showResult(result, 'error', `Server error (HTTP ${r.status})`); return; }
     const data = await r.json();
     if (data.error) { showResult(result, 'error', `${data.error}${data.code ? ' (' + data.code + ')' : ''}`); return; }
     const p = data.payment;
+    const isAuth = p.status === 'APPROVED';
     const risk = p.riskLevel ? ` · Risk: ${p.riskLevel}` : '';
     const receipt = p.receiptUrl ? ` · <a href="${p.receiptUrl}" target="_blank" style="color:#006AFF">Receipt ↗</a>` : '';
-    showResult(result, 'success', `✅ $${p.amount} charged! Status: ${p.status}${risk}${receipt}`);
+    showResult(result, 'success', isAuth
+      ? `🔒 Authorized $${p.amount} — capture from History tab · Status: ${p.status}${risk}`
+      : `✅ $${p.amount} charged! Status: ${p.status}${risk}${receipt}`);
     document.getElementById('qc-amount').value = '';
     document.getElementById('qc-note').value = '';
   } catch (e) { showResult(result, 'error', e.message); }

@@ -1946,21 +1946,23 @@ app.post('/api/profiles/:id/refund', requireAuth, async (req, res) => {
 app.post('/api/profiles/:id/quick-charge', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { customerId, cardId, amount, currency, note } = req.body;
+  const { customerId, cardId, amount, currency, note, authorizeOnly } = req.body;
   if (!customerId || !cardId || !amount) return res.status(400).json({ error: 'customerId, cardId, and amount required' });
   if (profile.max_amount && parseFloat(amount) > profile.max_amount) return res.status(400).json({ error: `Amount exceeds limit of $${profile.max_amount.toFixed(2)}` });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
   const amountCents = Math.round(parseFloat(amount) * 100);
-  const r = await squarePost(accessToken, '/v2/payments', {
+  const paymentBody = {
     source_id: cardId,
     amount_money: { amount: amountCents, currency: currency || 'USD' },
     location_id: profile.location_id,
     customer_id: customerId,
     note: note || '',
     idempotency_key: crypto.randomUUID(),
-    autocomplete: true,
-  });
+    autocomplete: !authorizeOnly,
+  };
+  if (authorizeOnly) paymentBody.delay_action = 'CANCEL';
+  const r = await squarePost(accessToken, '/v2/payments', paymentBody);
   if (r.status !== 200) {
     const detail = r.body?.errors?.[0]?.detail || 'Payment failed';
     const code = r.body?.errors?.[0]?.code || '';
@@ -1987,7 +1989,7 @@ app.post('/api/profiles/:id/quick-charge', requireAuth, async (req, res) => {
 
 // Charge
 app.post('/api/charge', requireAuth, async (req, res) => {
-  const { sourceId, amount, currency, note, buyerEmail, verificationToken } = req.body;
+  const { sourceId, amount, currency, note, buyerEmail, verificationToken, authorizeOnly } = req.body;
   if (!sourceId || !amount) return res.status(400).json({ error: 'sourceId and amount required' });
   const profile = getActiveProfile();
   if (!profile) return res.status(400).json({ error: 'No active profile' });
@@ -1995,13 +1997,18 @@ app.post('/api/charge', requireAuth, async (req, res) => {
   try {
     const amountCents = Math.round(parseFloat(amount) * 100);
     const client = createSquareClient(profile);
-    const response = await client.paymentsApi.createPayment({
+    const paymentBody = {
       sourceId, idempotencyKey: uuidv4(),
       amountMoney: { amount: BigInt(amountCents), currency: currency || 'USD' },
       locationId: profile.location_id, note: note || '',
       buyerEmailAddress: buyerEmail || undefined,
       verificationToken: verificationToken || undefined,
-    });
+    };
+    if (authorizeOnly) {
+      paymentBody.autocomplete = false;
+      paymentBody.delayAction = 'CANCEL';
+    }
+    const response = await client.paymentsApi.createPayment(paymentBody);
     const payment = response.result.payment;
     addTransaction(profile.id, { id: payment.id, type: 'charge', amount: parseFloat(amount), currency: currency || 'USD', note: note || '', buyerEmail: buyerEmail || '', status: payment.status, receiptUrl: payment.receiptUrl || '', createdAt: new Date().toISOString() });
     res.json({ success: true, paymentId: payment.id, status: payment.status, amount: { amount: payment.amountMoney?.amount?.toString(), currency: payment.amountMoney?.currency }, receiptUrl: payment.receiptUrl });
