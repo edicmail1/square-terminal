@@ -1672,16 +1672,33 @@ app.get('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
   const related = r.body.related_objects || [];
+  // Item price lookup for RELATIVE pricing
+  const itemPrices = {};
+  for (const rel of related) {
+    if (rel.type === 'ITEM') {
+      const fv = rel.item_data?.variations?.[0];
+      if (fv?.item_variation_data?.price_money) itemPrices[rel.id] = Number(fv.item_variation_data.price_money.amount);
+    }
+  }
   const plans = (r.body.objects || []).map(obj => {
+    const eligibleItemIds = obj.subscription_plan_data?.eligible_item_ids || [];
     const variations = (obj.subscription_plan_data?.subscription_plan_variations || []).map(v => {
-      // Try to find full variation in related_objects
       const full = related.find(r => r.id === v.id) || v;
       const phase = full.subscription_plan_variation_data?.phases?.[0];
+      let amount = '0.00';
+      if (phase?.pricing?.type === 'STATIC') {
+        amount = phase.pricing.price_money ? (Number(phase.pricing.price_money.amount) / 100).toFixed(2) : (phase.pricing.price ? (Number(phase.pricing.price.amount) / 100).toFixed(2) : '0.00');
+      } else if (phase?.pricing?.type === 'RELATIVE') {
+        for (const itemId of eligibleItemIds) {
+          if (itemPrices[itemId]) { amount = (itemPrices[itemId] / 100).toFixed(2); break; }
+        }
+      }
       return {
         id: full.id,
         name: full.subscription_plan_variation_data?.name || '',
         cadence: phase?.cadence || '',
-        amount: phase?.pricing?.price_money ? (Number(phase.pricing.price_money.amount) / 100).toFixed(2) : '0.00',
+        periods: phase?.periods || null,
+        amount,
         currency: phase?.pricing?.price_money?.currency || 'USD',
       };
     });
@@ -1731,17 +1748,37 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   const varLookup = {};
   if (planRes.status === 200) {
     const related = planRes.body.related_objects || [];
+    // Build item price lookup from related objects (for RELATIVE pricing)
+    const itemPriceLookup = {};
+    for (const r of related) {
+      if (r.type === 'ITEM') {
+        const firstVar = r.item_data?.variations?.[0];
+        if (firstVar?.item_variation_data?.price_money) {
+          itemPriceLookup[r.id] = Number(firstVar.item_variation_data.price_money.amount);
+        }
+      }
+    }
     for (const obj of (planRes.body.objects || [])) {
       const planName = obj.subscription_plan_data?.name || '';
+      const eligibleItemIds = obj.subscription_plan_data?.eligible_item_ids || [];
       for (const v of (obj.subscription_plan_data?.subscription_plan_variations || [])) {
         const full = related.find(r => r.id === v.id) || v;
         const phase = full.subscription_plan_variation_data?.phases?.[0];
+        let amount = null;
+        if (phase?.pricing?.type === 'STATIC') {
+          amount = phase.pricing.price_money ? (Number(phase.pricing.price_money.amount) / 100).toFixed(2) : (phase.pricing.price ? (Number(phase.pricing.price.amount) / 100).toFixed(2) : null);
+        } else if (phase?.pricing?.type === 'RELATIVE') {
+          // Price comes from linked catalog item
+          for (const itemId of eligibleItemIds) {
+            if (itemPriceLookup[itemId]) { amount = (itemPriceLookup[itemId] / 100).toFixed(2); break; }
+          }
+        }
         varLookup[full.id] = {
           planName,
           varName: full.subscription_plan_variation_data?.name || '',
           cadence: phase?.cadence || '',
           periods: phase?.periods || null,
-          amount: phase?.pricing?.price_money ? (Number(phase.pricing.price_money.amount) / 100).toFixed(2) : (phase?.pricing?.price ? (Number(phase.pricing.price.amount) / 100).toFixed(2) : null),
+          amount,
         };
       }
     }
