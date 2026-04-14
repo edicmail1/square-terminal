@@ -1892,6 +1892,34 @@ app.post('/api/poll-subscriptions', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// Refund payment (full or partial)
+app.post('/api/profiles/:id/refund', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { paymentId, amount, reason } = req.body;
+  if (!paymentId) return res.status(400).json({ error: 'paymentId is required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const body = {
+    payment_id: paymentId,
+    idempotency_key: crypto.randomUUID(),
+  };
+  if (amount) body.amount_money = { amount: Math.round(parseFloat(amount) * 100), currency: 'USD' };
+  if (reason) body.reason = reason;
+  const r = await squarePost(accessToken, '/v2/refunds', body);
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Refund failed' });
+  const refund = r.body.refund;
+  res.json({
+    success: true,
+    refund: {
+      id: refund.id,
+      status: refund.status,
+      amount: (Number(refund.amount_money?.amount || 0) / 100).toFixed(2),
+      reason: refund.reason || '',
+    },
+  });
+});
+
 // Quick Charge (charge saved card-on-file)
 app.post('/api/profiles/:id/quick-charge', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);

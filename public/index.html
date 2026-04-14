@@ -1822,7 +1822,25 @@ async function fetchHistory(append) {
             ${(p.billingName && p.shippingName && p.billingName !== p.shippingName) ? `<span style="color:#ef4444;font-weight:600">⚠ Billing ≠ Shipping</span>` : ''}
           </div>
         </div>` : ''}
-      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}</div>
+      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${p.status === 'COMPLETED' ? ` · <span onclick="toggleRefundForm('${p.id}',${ parseFloat(p.amount).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund</span>` : ''}</div>
+      <div id="refund-form-${p.id}" style="display:none;margin-top:6px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
+        <div style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:6px;">
+          <label><input type="radio" name="refund-type-${p.id}" value="full" checked onchange="document.getElementById('refund-partial-${p.id}').style.display='none'"> Full ($${parseFloat(p.amount).toFixed(2)})</label>
+          <label><input type="radio" name="refund-type-${p.id}" value="partial" onchange="document.getElementById('refund-partial-${p.id}').style.display='flex'"> Partial</label>
+        </div>
+        <div id="refund-partial-${p.id}" style="display:none;gap:6px;align-items:center;margin-bottom:6px;">
+          <div class="amount-wrap" style="flex:0 0 120px;"><span>$</span><input type="number" id="refund-amount-${p.id}" placeholder="0.00" step="0.01" min="0.01" max="${parseFloat(p.amount).toFixed(2)}" style="font-size:12px;" /></div>
+          <span style="font-size:11px;color:#6b7280;">of $${parseFloat(p.amount).toFixed(2)}</span>
+        </div>
+        <div style="margin-bottom:6px;">
+          <input type="text" id="refund-reason-${p.id}" placeholder="Reason (optional)" style="width:100%;font-size:12px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;" />
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button onclick="processRefund('${p.id}',${parseFloat(p.amount).toFixed(2)})" style="background:#f59e0b;color:white;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">Confirm Refund</button>
+          <button onclick="toggleRefundForm('${p.id}')" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;">Cancel</button>
+        </div>
+        <div id="refund-result-${p.id}" class="result" style="margin-top:6px;"></div>
+      </div>
 
       <span class="tx-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'grid':'none';this.textContent=this.textContent==='▼ Подробнее'?'▲ Скрыть':'▼ Подробнее'">▼ Подробнее</span>
       <div class="tx-details" style="display:none">
@@ -2603,6 +2621,49 @@ async function loadPayouts(append) {
 
 function loadPayoutsMore() {
   loadPayouts(true);
+}
+
+
+// ── Refunds ───────────────────────────────────────────────────────────────────────────
+function toggleRefundForm(paymentId) {
+  const form = document.getElementById(`refund-form-${paymentId}`);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function processRefund(paymentId, fullAmount) {
+  const result = document.getElementById(`refund-result-${paymentId}`);
+  const type = document.querySelector(`input[name="refund-type-${paymentId}"]:checked`)?.value;
+  const partialAmount = document.getElementById(`refund-amount-${paymentId}`)?.value;
+  const reason = document.getElementById(`refund-reason-${paymentId}`)?.value?.trim();
+
+  let amount = null;
+  if (type === 'partial') {
+    if (!partialAmount || parseFloat(partialAmount) <= 0) { showResult(result, 'error', 'Enter refund amount'); return; }
+    if (parseFloat(partialAmount) > fullAmount) { showResult(result, 'error', `Amount cannot exceed $${fullAmount.toFixed(2)}`); return; }
+    amount = parseFloat(partialAmount);
+  }
+
+  if (!confirm(`Refund ${amount ? '$' + amount.toFixed(2) : '$' + fullAmount.toFixed(2) + ' (full)'}?`)) return;
+
+  if (!profilesData?.activeId) { showResult(result, 'error', 'No active profile'); return; }
+  showResult(result, 'info', 'Processing refund...');
+  try {
+    const body = { paymentId };
+    if (amount) body.amount = amount;
+    if (reason) body.reason = reason;
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/refund`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.includes('json')) { showResult(result, 'error', `Server error (HTTP ${r.status})`); return; }
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', data.error); return; }
+    const ref = data.refund;
+    showResult(result, 'success', `✅ Refunded $${ref.amount} · Status: ${ref.status}${ref.reason ? ' · ' + ref.reason : ''}`);
+    // Reload history after 2 seconds
+    setTimeout(() => loadHistory(), 2000);
+  } catch (e) { showResult(result, 'error', e.message); }
 }
 
 
