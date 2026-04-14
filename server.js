@@ -1672,14 +1672,29 @@ app.get('/api/profiles/:id/plans', requireAuth, async (req, res) => {
   });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
   const related = r.body.related_objects || [];
-  // Item price lookup for RELATIVE pricing
+
+  // Collect all eligible_item_ids to fetch prices
+  const allItemIds = new Set();
+  for (const obj of (r.body.objects || [])) {
+    for (const id of (obj.subscription_plan_data?.eligible_item_ids || [])) allItemIds.add(id);
+  }
+
+  // Fetch items separately (related_objects doesn't include ITEM for plans)
   const itemPrices = {};
-  for (const rel of related) {
-    if (rel.type === 'ITEM') {
-      const fv = rel.item_data?.variations?.[0];
-      if (fv?.item_variation_data?.price_money) itemPrices[rel.id] = Number(fv.item_variation_data.price_money.amount);
+  if (allItemIds.size > 0) {
+    const itemRes = await squarePost(accessToken, '/v2/catalog/batch-retrieve', {
+      object_ids: [...allItemIds], include_related_objects: true,
+    });
+    if (itemRes.status === 200) {
+      for (const obj of (itemRes.body.objects || [])) {
+        if (obj.type === 'ITEM') {
+          const fv = obj.item_data?.variations?.[0];
+          if (fv?.item_variation_data?.price_money) itemPrices[obj.id] = Number(fv.item_variation_data.price_money.amount);
+        }
+      }
     }
   }
+
   const plans = (r.body.objects || []).map(obj => {
     const eligibleItemIds = obj.subscription_plan_data?.eligible_item_ids || [];
     const variations = (obj.subscription_plan_data?.subscription_plan_variations || []).map(v => {
@@ -1747,17 +1762,26 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   // Build plan variation lookup: variationId → { name, cadence, periods, amount }
   const varLookup = {};
   if (planRes.status === 200) {
-    const related = planRes.body.related_objects || [];
-    // Build item price lookup from related objects (for RELATIVE pricing)
+    // Collect eligible item IDs and fetch prices separately
+    const allItemIds2 = new Set();
+    for (const obj of (planRes.body.objects || [])) {
+      for (const id of (obj.subscription_plan_data?.eligible_item_ids || [])) allItemIds2.add(id);
+    }
     const itemPriceLookup = {};
-    for (const r of related) {
-      if (r.type === 'ITEM') {
-        const firstVar = r.item_data?.variations?.[0];
-        if (firstVar?.item_variation_data?.price_money) {
-          itemPriceLookup[r.id] = Number(firstVar.item_variation_data.price_money.amount);
+    if (allItemIds2.size > 0) {
+      const itemRes2 = await squarePost(accessToken, '/v2/catalog/batch-retrieve', {
+        object_ids: [...allItemIds2], include_related_objects: true,
+      });
+      if (itemRes2.status === 200) {
+        for (const obj of (itemRes2.body.objects || [])) {
+          if (obj.type === 'ITEM') {
+            const fv = obj.item_data?.variations?.[0];
+            if (fv?.item_variation_data?.price_money) itemPriceLookup[obj.id] = Number(fv.item_variation_data.price_money.amount);
+          }
         }
       }
     }
+    const related = planRes.body.related_objects || [];
     for (const obj of (planRes.body.objects || [])) {
       const planName = obj.subscription_plan_data?.name || '';
       const eligibleItemIds = obj.subscription_plan_data?.eligible_item_ids || [];
