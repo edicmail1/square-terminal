@@ -1736,6 +1736,7 @@ async function loadHistory() {
   historyCursor = null;
   document.getElementById('tx-list').innerHTML = '<div class="empty-state">Loading from Square...</div>';
   document.getElementById('history-load-more').style.display = 'none';
+  document.getElementById('refund-all-result').innerHTML = '';
   await initHistoryLocations();
   await fetchHistory(false);
 }
@@ -1830,7 +1831,7 @@ async function fetchHistory(append) {
             ${(p.billingName && p.shippingName && p.billingName !== p.shippingName) ? `<span style="color:#ef4444;font-weight:600">⚠ Billing ≠ Shipping</span>` : ''}
           </div>
         </div>` : ''}
-      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${(p.status === 'COMPLETED' && !isFullyRefunded) ? ` · <span onclick="toggleRefundForm('${p.id}',${(Number(p.amount?.amount||0)/100).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund${isPartiallyRefunded ? ' more' : ''}</span>` : ''}</div>
+      <div class="tx-date" style="margin-top:3px">${date}${p.receiptUrl ? ` · <a class="tx-receipt" href="${p.receiptUrl}" target="_blank">Receipt ↗</a>` : ''}${(p.status === 'COMPLETED' && !isFullyRefunded && p.delayAction !== 'CANCEL') ? ` · <span onclick="toggleRefundForm('${p.id}',${(Number(p.amount?.amount||0)/100).toFixed(2)})" style="color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600;">🔄 Refund${isPartiallyRefunded ? ' more' : ''}</span>` : ''}${p.delayAction === 'CANCEL' ? ' · <span style="color:#6b7280;font-size:11px;">⏳ Pending capture</span>' : ''}</div>
       <div id="refund-form-${p.id}" style="display:none;margin-top:6px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
         <div style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:6px;">
           <label><input type="radio" name="refund-type-${p.id}" value="full" checked onchange="document.getElementById('refund-partial-${p.id}').style.display='none'"> Full ($${(Number(p.amount?.amount||0)/100).toFixed(2)})</label>
@@ -2693,6 +2694,7 @@ async function refundAllPayments() {
       if (p.status !== 'COMPLETED') return false;
       const amtCents = Number(p.amount?.amount || 0);
       const refundedCents = Number(p.refundedMoney?.amount || 0);
+      if (p.delayAction === 'CANCEL') return false; // pending capture, can't refund
       return refundedCents < amtCents; // not fully refunded
     });
 
