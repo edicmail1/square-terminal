@@ -2514,8 +2514,6 @@ app.post('/api/profiles/:id/customers', requireAuth, async (req, res) => {
     if (postalCode) body.address.postal_code = postalCode;
     body.address.country = country || 'US';
   }
-  const accessToken = getDecryptedToken(profile);
-  _currentProxy = profile.proxy_url || '';
   const r = await squarePost(accessToken, '/v2/customers', body);
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create customer' });
   const c = r.body.customer;
