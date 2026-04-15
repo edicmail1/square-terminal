@@ -4024,9 +4024,13 @@ async function openAttachCard(customerId, customerName) {
   await new Promise(r => setTimeout(r, 100));
   try {
     await loadSquareJs();
-    const cfg = await fetch('/api/config').then(r => r.json());
+    // Use current profile's applicationId, not /api/config (which returns active profile — may differ)
+    const currentProfile = profilesData.profiles.find(p => p.id === profilesData.activeId);
+    if (!currentProfile) throw new Error('Profile not found');
+    if (!currentProfile.applicationId) throw new Error('Application ID missing for this profile');
+    if (!currentProfile.locationId) throw new Error('Location ID missing for this profile');
     document.getElementById('cust-card-container').innerHTML = '';
-    const payments = Square.payments(cfg.applicationId, cfg.locationId);
+    const payments = Square.payments(currentProfile.applicationId, currentProfile.locationId);
     custCard = await payments.card();
     await custCard.attach('#cust-card-container');
   } catch (e) {
