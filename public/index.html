@@ -419,7 +419,7 @@
     <div class="field">
       <label>Customer <span style="color:#6b7280;font-weight:400;font-size:11px;">(improves approval rate)</span></label>
       <div style="position:relative;">
-        <input type="text" id="m-name" placeholder="Search or enter customer name..." oninput="searchManualCustomers(this.value)" autocomplete="off" />
+        <input type="text" id="m-name" placeholder="Search or select customer..." oninput="searchManualCustomers(this.value)" onfocus="loadAllManualCustomers()" autocomplete="off" />
         <div id="m-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
       </div>
       <input type="hidden" id="m-customer-id" />
@@ -468,7 +468,7 @@
     <div class="field">
       <label>Customer</label>
       <div style="position:relative;">
-        <input type="text" id="qc-customer-search" placeholder="Search customer by name or email..." oninput="searchQcCustomers(this.value)" autocomplete="off" />
+        <input type="text" id="qc-customer-search" placeholder="Search or select customer..." oninput="searchQcCustomers(this.value)" onfocus="loadAllQcCustomers()" autocomplete="off" />
         <div id="qc-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
       </div>
       <input type="hidden" id="qc-customer-id" />
@@ -591,7 +591,7 @@
         <label>Customer <span class="req">*</span></label>
         <div style="display:flex;gap:6px;align-items:start;">
           <div style="flex:1;position:relative;">
-            <input type="text" id="inv-customer-search" placeholder="Search customer by name/email..." oninput="searchInvCustomers(this.value)" autocomplete="off" />
+            <input type="text" id="inv-customer-search" placeholder="Search or select customer..." oninput="searchInvCustomers(this.value)" onfocus="loadAllInvCustomers()" autocomplete="off" />
             <div id="inv-customer-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #d1d5db;border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
           </div>
           <button type="button" onclick="toggleNewCustomerForm()" style="background:#059669;color:white;border:none;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">+ New</button>
@@ -1647,6 +1647,7 @@ async function switchProfile(id) {
     renderProfileList();
     updateLimitInfo();
     document.getElementById('l-location').dataset.loaded = ''; // reset location cache
+    globalCustomersCache = null; // reset customer cache on profile switch
     // Re-init Square.js only if Manual Entry tab is currently open
     if (document.getElementById('panel-manual').classList.contains('active')) {
       await initSquare();
@@ -2639,24 +2640,23 @@ function fieldError(id, msg) {
 
 // ── Manual Entry Customer Search ──────────────────────────────────────────────────────
 let manualCustSearchTimeout = null;
+async function loadAllManualCustomers() {
+  const customers = await getAllCustomersCached();
+  renderCustomerDropdown('m-customer-results', customers, '', 'selectManualCustomer');
+}
 function searchManualCustomers(query) {
   clearTimeout(manualCustSearchTimeout);
-  const results = document.getElementById('m-customer-results');
-  if (query.length < 2) { results.style.display = 'none'; return; }
+  if (!query) { renderCustomerDropdown('m-customer-results', globalCustomersCache || [], '', 'selectManualCustomer'); return; }
+  renderCustomerDropdown('m-customer-results', globalCustomersCache || [], query, 'selectManualCustomer');
+  if (query.length < 2) return;
   manualCustSearchTimeout = setTimeout(async () => {
     if (!profilesData?.activeId) return;
     try {
       const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
       if (!r.headers.get('content-type')?.includes('json')) return;
       const data = await r.json();
-      const customers = data.customers || [];
-      if (!customers.length) { results.innerHTML = '<div style="padding:8px 12px;color:#6b7280;font-size:12px;">No match — name will be used as-is</div>'; results.style.display = 'block'; return; }
-      results.innerHTML = customers.slice(0, 6).map(c => {
-        const cname = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
-        return `<div onclick="selectManualCustomer('${c.id}','${cname.replace(/'/g, "\\'")}','${c.emailAddress || c.email || ''}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${cname} <span style="color:#9ca3af">${c.emailAddress || c.email || ''}</span></div>`;
-      }).join('');
-      results.style.display = 'block';
-    } catch (_) { results.style.display = 'none'; }
+      if (data.customers?.length) renderCustomerDropdown('m-customer-results', data.customers, '', 'selectManualCustomer');
+    } catch (_) {}
   }, 300);
 }
 
@@ -3150,28 +3150,28 @@ async function refundAllPayments() {
 // ── Quick Charge ──────────────────────────────────────────────────────────────────────
 let qcSearchTimeout = null;
 
+async function loadAllQcCustomers() {
+  const customers = await getAllCustomersCached();
+  renderCustomerDropdown('qc-customer-results', customers, '', 'selectQcCustomer');
+}
 function searchQcCustomers(query) {
   clearTimeout(qcSearchTimeout);
-  const results = document.getElementById('qc-customer-results');
-  if (query.length < 2) { results.style.display = 'none'; return; }
+  if (!query) { renderCustomerDropdown('qc-customer-results', globalCustomersCache || [], '', 'selectQcCustomer'); return; }
+  renderCustomerDropdown('qc-customer-results', globalCustomersCache || [], query, 'selectQcCustomer');
+  if (query.length < 2) return;
   qcSearchTimeout = setTimeout(async () => {
     try {
       const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
+      if (!r.headers.get('content-type')?.includes('json')) return;
       const data = await r.json();
-      const customers = data.customers || [];
-      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
-      results.innerHTML = customers.slice(0, 8).map(c => {
-        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
-        return `<div onclick="selectQcCustomer('${c.id}','${name.replace(/'/g, "\\'")}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">${name} <span style="color:#9ca3af">${c.emailAddress || c.email || ''}</span></div>`;
-      }).join('');
-      results.style.display = 'block';
-    } catch (_) { results.style.display = 'none'; }
+      if (data.customers?.length) renderCustomerDropdown('qc-customer-results', data.customers, '', 'selectQcCustomer');
+    } catch (_) {}
   }, 300);
 }
 
-async function selectQcCustomer(id, name) {
+async function selectQcCustomer(id, name, email) {
   document.getElementById('qc-customer-id').value = id;
-  document.getElementById('qc-customer-search').value = name;
+  document.getElementById('qc-customer-search').value = name + (email ? ' (' + email + ')' : '');
   document.getElementById('qc-customer-results').style.display = 'none';
   // Load saved cards
   const cardSelect = document.getElementById('qc-card');
@@ -3745,26 +3745,64 @@ async function saveNewCustomer() {
   }
 }
 
+// Shared customer cache (across all forms)
+let globalCustomersCache = null;
+let globalCustomersCacheProfileId = null;
+async function getAllCustomersCached() {
+  if (!profilesData?.activeId) return [];
+  if (globalCustomersCache && globalCustomersCacheProfileId === profilesData.activeId) return globalCustomersCache;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?limit=100`, { credentials: 'include' });
+    if (!r.headers.get('content-type')?.includes('json')) return [];
+    const data = await r.json();
+    globalCustomersCache = data.customers || [];
+    globalCustomersCacheProfileId = profilesData.activeId;
+    return globalCustomersCache;
+  } catch (_) { return []; }
+}
+
+function renderCustomerDropdown(resultsId, customers, filter, onSelect) {
+  const results = document.getElementById(resultsId);
+  const q = filter.toLowerCase();
+  const filtered = q ? customers.filter(c =>
+    (c.givenName || '').toLowerCase().includes(q) ||
+    (c.familyName || '').toLowerCase().includes(q) ||
+    (c.emailAddress || c.email || '').toLowerCase().includes(q) ||
+    (c.phone || c.phoneNumber || '').includes(q)
+  ) : customers;
+  if (!filtered.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:12px;">No customers found</div>'; results.style.display = 'block'; return; }
+  results.innerHTML = filtered.slice(0, 15).map(c => {
+    const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
+    const email = c.emailAddress || c.email || '';
+    return `<div onclick="${onSelect}('${c.id}','${name.replace(/'/g, "\\'")}','${email}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:12px;display:flex;justify-content:space-between;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">
+      <span style="color:#111827;font-weight:500;">${name}</span>
+      <span style="color:#9ca3af;font-size:11px;">${email}</span>
+    </div>`;
+  }).join('');
+  results.style.display = 'block';
+}
+
+// Invoice customer selector
+async function loadAllInvCustomers() {
+  const customers = await getAllCustomersCached();
+  renderCustomerDropdown('inv-customer-results', customers, '', 'selectInvCustomerById');
+}
+function selectInvCustomerById(id, name, email) {
+  selectInvCustomer(id, `${name}${email ? ' (' + email + ')' : ''}`);
+}
 function searchInvCustomers(query) {
   clearTimeout(invCustomerSearchTimeout);
   const results = document.getElementById('inv-customer-results');
-  if (query.length < 2) { results.style.display = 'none'; return; }
+  if (!query) { renderCustomerDropdown('inv-customer-results', globalCustomersCache || [], '', 'selectInvCustomerById'); return; }
+  renderCustomerDropdown('inv-customer-results', globalCustomersCache || [], query, 'selectInvCustomerById');
+  if (query.length < 2) return;
   invCustomerSearchTimeout = setTimeout(async () => {
     try {
       const r = await fetch(`/api/profiles/${profilesData.activeId}/customers?query=${encodeURIComponent(query)}`, { credentials: 'include' });
+      if (!r.headers.get('content-type')?.includes('json')) return;
       const data = await r.json();
-      const customers = data.customers || [];
-      if (!customers.length) { results.innerHTML = '<div style="padding:10px;color:#6b7280;font-size:13px;">No customers found</div>'; results.style.display = 'block'; return; }
-      results.innerHTML = customers.slice(0, 8).map(c => {
-        const name = [c.givenName, c.familyName].filter(Boolean).join(' ') || 'No name';
-        const email = c.emailAddress || '';
-        return `<div onclick="selectInvCustomer('${c.id}','${name.replace(/'/g, "\\'")} ${email ? '(' + email + ')' : ''}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:13px;display:flex;justify-content:space-between;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">
-          <span style="font-weight:500;color:#111827;">${name}</span>
-          <span style="color:#6b7280;font-size:12px;">${email}</span>
-        </div>`;
-      }).join('');
-      results.style.display = 'block';
-    } catch (_) { results.style.display = 'none'; }
+      if (data.customers?.length) renderCustomerDropdown('inv-customer-results', data.customers, '', 'selectInvCustomerById');
+    } catch (_) {}
   }, 300);
 }
 
