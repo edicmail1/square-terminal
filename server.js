@@ -23,7 +23,7 @@ app.use(express.static('public'));
 const RENDER_API_TOKEN  = process.env.RENDER_API_TOKEN;
 const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID;
 const APP_PASSWORD      = process.env.APP_PASSWORD || 'changeme';
-const BASE_URL          = process.env.BASE_URL || 'https://square-terminal.onrender.com';
+const BASE_URL          = process.env.BASE_URL || 'https://hdi588.onrender.com';
 
 // JWT secret — persistent, generated once, stored in env
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
