@@ -617,6 +617,46 @@ app.get('/api/profiles', requireAuth, (req, res) => {
   });
 });
 
+// Export full SQLite DB as downloadable file
+app.get('/api/admin/export-db', requireAuth, (req, res) => {
+  const fs = require('fs');
+  const dbPath = process.env.DB_PATH || '/opt/render/project/src/data/terminal.db';
+  if (!fs.existsSync(dbPath)) return res.status(404).json({ error: 'DB file not found' });
+  // Force SQLite checkpoint to flush WAL into main DB file
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (_) {}
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="terminal-${new Date().toISOString().slice(0, 10)}.db"`);
+  fs.createReadStream(dbPath).pipe(res);
+});
+
+// Import SQLite DB (replaces current)
+app.post('/api/admin/import-db', requireAuth, express.raw({ type: '*/*', limit: '100mb' }), (req, res) => {
+  const fs = require('fs');
+  const dbPath = process.env.DB_PATH || '/opt/render/project/src/data/terminal.db';
+  const body = req.body;
+  if (!body || !Buffer.isBuffer(body) || body.length < 100) {
+    return res.status(400).json({ error: 'Invalid DB file' });
+  }
+  // Check SQLite magic header
+  if (body.slice(0, 15).toString() !== 'SQLite format 3') {
+    return res.status(400).json({ error: 'Not a valid SQLite file' });
+  }
+  try {
+    // Close current DB
+    db.close();
+    // Remove WAL/SHM files if exist
+    try { fs.unlinkSync(dbPath + '-wal'); } catch (_) {}
+    try { fs.unlinkSync(dbPath + '-shm'); } catch (_) {}
+    // Write new DB
+    fs.writeFileSync(dbPath, body);
+    res.json({ success: true, size: body.length, message: 'DB imported. Server restart required.' });
+    // Exit process — Render will restart it
+    setTimeout(() => process.exit(0), 500);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Cleanup webhooks — delete all webhook subscriptions across all profiles
 app.post('/api/admin/cleanup-webhooks', requireAuth, async (req, res) => {
   const profiles = dbAll("SELECT * FROM profiles");
