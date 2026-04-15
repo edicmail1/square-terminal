@@ -617,6 +617,40 @@ app.get('/api/profiles', requireAuth, (req, res) => {
   });
 });
 
+// Cleanup webhooks — delete all webhook subscriptions across all profiles
+app.post('/api/admin/cleanup-webhooks', requireAuth, async (req, res) => {
+  const profiles = dbAll("SELECT * FROM profiles");
+  const results = [];
+  for (const p of profiles) {
+    const entry = { name: p.name, deleted: [], errors: [] };
+    try {
+      const token = getDecryptedToken(p);
+      _currentProxy = p.proxy_url || '';
+      // List webhooks
+      const listRes = await squareGet(token, '/v2/webhooks/subscriptions');
+      if (listRes.status !== 200) {
+        entry.errors.push(listRes.body?.errors?.[0]?.detail || `HTTP ${listRes.status}`);
+        results.push(entry);
+        continue;
+      }
+      const subs = listRes.body.subscriptions || [];
+      // Delete each webhook
+      for (const sub of subs) {
+        try {
+          const delRes = await squareRequest('DELETE', token, `/v2/webhooks/subscriptions/${sub.id}`, null);
+          if (delRes.status === 200 || delRes.status === 204) {
+            entry.deleted.push({ id: sub.id, name: sub.name, url: sub.notification_url });
+          } else {
+            entry.errors.push(`Delete ${sub.id}: ${delRes.body?.errors?.[0]?.detail || delRes.status}`);
+          }
+        } catch (e) { entry.errors.push(`Delete ${sub.id}: ${e.message}`); }
+      }
+    } catch (e) { entry.errors.push(e.message); }
+    results.push(entry);
+  }
+  res.json({ results });
+});
+
 // Dashboard summary across all profiles
 app.get('/api/dashboard', requireAuth, async (req, res) => {
   const profiles = dbAll("SELECT * FROM profiles");

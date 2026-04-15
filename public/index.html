@@ -1143,9 +1143,10 @@
         <button class="period-btn" data-stab="blocked" onclick="switchSettingsTab('blocked')">❌ Blocked</button>
         <button class="period-btn" data-stab="add" onclick="switchSettingsTab('add')">➕ Add New</button>
       </div>
-      <div style="display:flex;gap:4px;">
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
         <button onclick="bulkCheckIp()" id="btn-bulk-ip" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🔍 Check All IPs</button>
         <button onclick="bulkHealthCheck()" id="btn-bulk-health" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🏥 Health All</button>
+        <button onclick="cleanupWebhooks()" id="btn-cleanup-webhooks" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">🗑 Delete All Webhooks</button>
       </div>
     </div>
     <div id="bulk-result" class="result" style="margin-bottom:10px;"></div>
@@ -1375,6 +1376,36 @@ function renderProfileSwitcher() {
   sel.innerHTML = profilesData.profiles.map(p =>
     `<option value="${p.id}" ${p.id === profilesData.activeId ? 'selected' : ''}>${p.name}</option>`
   ).join('');
+}
+
+async function cleanupWebhooks() {
+  if (!confirm('Delete ALL webhook subscriptions across ALL businesses? This will stop Square from retrying failed deliveries.')) return;
+  const result = document.getElementById('bulk-result');
+  const btn = document.getElementById('btn-cleanup-webhooks');
+  btn.disabled = true;
+  result.style.display = 'block';
+  result.className = 'result info';
+  result.innerHTML = 'Deleting webhooks from all businesses...';
+  try {
+    const r = await fetch('/api/admin/cleanup-webhooks', { method: 'POST', credentials: 'include' });
+    const data = await r.json();
+    let html = '';
+    let totalDeleted = 0;
+    for (const entry of (data.results || [])) {
+      const count = entry.deleted?.length || 0;
+      totalDeleted += count;
+      const icon = entry.errors.length ? '⚠️' : count > 0 ? '✅' : '➖';
+      html += `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #f3f4f6;">
+        ${icon} <strong>${entry.name}</strong>: ${count} deleted${entry.errors.length ? ' · errors: ' + entry.errors.join(', ') : ''}
+      </div>`;
+    }
+    result.className = totalDeleted > 0 ? 'result success' : 'result info';
+    result.innerHTML = `<strong>Total deleted: ${totalDeleted}</strong>${html}`;
+  } catch (e) {
+    result.className = 'result error';
+    result.innerHTML = `Error: ${e.message}`;
+  }
+  btn.disabled = false;
 }
 
 async function bulkCheckIp() {
