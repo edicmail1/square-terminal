@@ -358,8 +358,18 @@ function getProxyAgent(proxyUrl) {
 
 function squareRequest(method, accessToken, apiPath, body, proxyUrl) {
   return new Promise((resolve, reject) => {
+    const effectiveProxy = proxyUrl !== undefined ? proxyUrl : _currentProxy;
+    // SAFETY: refuse all Square API calls without proxy
+    if (!effectiveProxy) {
+      resolve({
+        status: 403,
+        body: { errors: [{ category: 'AUTHORIZATION_ERROR', code: 'PROXY_REQUIRED', detail: 'Прокси обязателен для всех запросов к Square API. Установите прокси в Settings.' }] },
+        proxyMissing: true,
+      });
+      return;
+    }
     const payload = body ? JSON.stringify(body) : null;
-    const agent = getProxyAgent(proxyUrl !== undefined ? proxyUrl : _currentProxy);
+    const agent = getProxyAgent(effectiveProxy);
     const req = https.request({
       hostname: 'connect.squareup.com',
       path: apiPath, method,
