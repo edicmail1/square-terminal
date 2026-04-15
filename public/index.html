@@ -1161,21 +1161,7 @@
 
     <div id="settings-tab-add" style="display:none;">
 
-    <div id="oauth-connect-block" style="display:none;margin-bottom:20px">
-      <div class="section-title">Connect via Square OAuth</div>
-      <div class="field">
-        <label>Business Name (for the new profile)</label>
-        <input type="text" id="oauth-name" placeholder="e.g. My Salon" />
-      </div>
-      <button class="btn btn-primary" onclick="connectSquare()" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;gap:10px">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0zm0 4.5a7.5 7.5 0 110 15 7.5 7.5 0 010-15z"/></svg>
-        Connect Square Account
-      </button>
-      <div style="font-size:12px;color:#6b7280;margin-top:8px;text-align:center">Вы будете перенаправлены на страницу Square для авторизации</div>
-      <hr class="divider" />
-    </div>
-
-    <div class="section-title" id="form-title">➕ Add Business</div>
+<div class="section-title" id="form-title">➕ Add Business</div>
     <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.7;color:#78350f">
       <strong>📋 Где найти ключи в Square:</strong><br>
       1. Зайдите на <a href="https://developer.squareup.com/apps?lang=en-US" target="_blank" style="color:#006AFF">developer.squareup.com/apps</a><br>
@@ -1291,39 +1277,8 @@ async function doLogout() {
   showLogin();
 }
 
-// ── OAuth ─────────────────────────────────────────────────────────────────────────
-function connectSquare() {
-  const name = document.getElementById('oauth-name').value.trim() || 'New Business';
-  window.location.href = `/auth/square?name=${encodeURIComponent(name)}`;
-}
-
-function checkOAuthResult() {
-  const params = new URLSearchParams(window.location.search);
-  const oauth = params.get('oauth');
-  if (!oauth) return;
-  // Clean URL
-  window.history.replaceState({}, '', '/');
-  if (oauth === 'success') {
-    const name = params.get('name') || 'New Business';
-    setTimeout(() => {
-      showResult(document.getElementById('result-settings'), 'success', `✅ "${name}" подключён через Square OAuth!`);
-      switchTab('settings');
-    }, 500);
-  } else if (oauth === 'error') {
-    setTimeout(() => {
-      showResult(document.getElementById('result-settings'), 'error', '❌ OAuth error: ' + (params.get('msg') || 'Unknown'));
-      switchTab('settings');
-    }, 500);
-  }
-}
-
 // ── Init ───────────────────────────────────────────────────────────────────────────
 async function init() {
-  checkOAuthResult();
-  const oauthCfg = await fetch('/api/oauth-config').then(r => r.json());
-  if (oauthCfg.enabled) {
-    document.getElementById('oauth-connect-block').style.display = 'block';
-  }
   await loadProfiles();
   // Restore last tab or default to link
   const lastTab = localStorage.getItem('lastTab') || 'link';

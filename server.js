@@ -23,7 +23,6 @@ app.use(express.static('public'));
 const RENDER_API_TOKEN  = process.env.RENDER_API_TOKEN;
 const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID;
 const APP_PASSWORD      = process.env.APP_PASSWORD || 'changeme';
-const BASE_URL          = process.env.BASE_URL || 'https://hdi588.onrender.com';
 
 // JWT secret — persistent, generated once, stored in env
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
@@ -36,11 +35,6 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || (() => {
   console.warn('⚠️  ENCRYPTION_KEY not set! Generated temporary key. Set ENCRYPTION_KEY env var for persistence.');
   return key;
 })();
-
-// Square OAuth app credentials
-const SQ_CLIENT_ID     = process.env.SQ_CLIENT_ID || '';
-const SQ_CLIENT_SECRET = process.env.SQ_CLIENT_SECRET || '';
-const SQ_OAUTH_SCOPES  = 'PAYMENTS_READ PAYMENTS_WRITE MERCHANT_PROFILE_READ ORDERS_READ ORDERS_WRITE';
 
 // Rate limiting config
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -124,12 +118,6 @@ db.exec(`
     expires_at TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS oauth_states (
-    state TEXT PRIMARY KEY,
-    profile_name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
   CREATE TABLE IF NOT EXISTS login_attempts (
     ip TEXT PRIMARY KEY,
     attempts INTEGER NOT NULL DEFAULT 0,
@@ -156,7 +144,6 @@ db.exec(`
 // Clean up expired sessions periodically
 function cleanupExpiredSessions() {
   db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
-  db.prepare("DELETE FROM oauth_states WHERE created_at < datetime('now', '-1 hour')").run();
   db.prepare("DELETE FROM login_attempts WHERE locked_until < datetime('now')").run();
 }
 setInterval(cleanupExpiredSessions, 60 * 60 * 1000); // every hour
@@ -491,106 +478,10 @@ app.get('/api/auth-status', (req, res) => {
   res.json({ authenticated: !!verifyJWT(token) });
 });
 
-// ── Square OAuth ─────────────────────────────────────────────────────────────
-app.get('/auth/square', requireAuth, (req, res) => {
-  if (!SQ_CLIENT_ID) return res.status(400).send('SQ_CLIENT_ID not configured');
-  const state = crypto.randomBytes(16).toString('hex');
-  const profileName = req.query.name || 'New Business';
-
-  // Store in DB instead of memory
-  dbRun("INSERT INTO oauth_states (state, profile_name) VALUES (?, ?)", [state, profileName]);
-
-  const params = new URLSearchParams({
-    client_id: SQ_CLIENT_ID,
-    scope: SQ_OAUTH_SCOPES,
-    state,
-    redirect_uri: `${BASE_URL}/auth/callback`,
-    session: 'false',
-  });
-  res.redirect(`https://connect.squareup.com/oauth2/authorize?${params}`);
-});
-
-app.get('/auth/callback', async (req, res) => {
-  const { code, state, error } = req.query;
-
-  if (error) return res.redirect('/?oauth=error&msg=' + encodeURIComponent(error));
-
-  // Look up state in DB
-  const stateData = dbGet("SELECT * FROM oauth_states WHERE state = ?", [state]);
-  if (!stateData) return res.redirect('/?oauth=error&msg=invalid_state');
-  dbRun("DELETE FROM oauth_states WHERE state = ?", [state]);
-
-  try {
-    const body = JSON.stringify({
-      client_id: SQ_CLIENT_ID,
-      client_secret: SQ_CLIENT_SECRET,
-      code,
-      redirect_uri: `${BASE_URL}/auth/callback`,
-      grant_type: 'authorization_code',
-    });
-
-    const result = await new Promise((resolve, reject) => {
-      const req = https.request({
-        hostname: 'connect.squareup.com',
-        path: '/oauth2/token',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Square-Version': '2025-01-23',
-          'Content-Length': Buffer.byteLength(body),
-        },
-      }, res => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
-      });
-      req.on('error', reject);
-      req.write(body);
-      req.end();
-    });
-
-    if (result.status !== 200) {
-      return res.redirect('/?oauth=error&msg=' + encodeURIComponent(result.body?.message || 'Token exchange failed'));
-    }
-
-    const { access_token } = result.body;
-
-    const [merchantRes, locRes] = await Promise.all([
-      squareGet(access_token, '/v2/merchants/me'),
-      squareGet(access_token, '/v2/locations'),
-    ]);
-
-    const merchant  = merchantRes.body?.merchant || {};
-    const locations = locRes.body?.locations || [];
-    const firstLoc  = locations.find(l => l.status === 'ACTIVE') || locations[0] || {};
-
-    const newId = uuidv4();
-    const profileName = merchant.business_name || stateData.profile_name;
-    const profileCount = dbGet("SELECT COUNT(*) as count FROM profiles").count;
-
-    dbRun(
-      `INSERT INTO profiles (id, name, access_token, application_id, location_id, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
-      [newId, profileName, encrypt(access_token), SQ_CLIENT_ID, firstLoc.id || '', profileCount === 0 ? 1 : 0]
-    );
-
-    if (profileCount === 0) {
-      squareClient = createSquareClient(getProfileById(newId));
-    }
-
-    res.redirect('/?oauth=success&name=' + encodeURIComponent(profileName));
-  } catch (err) {
-    res.redirect('/?oauth=error&msg=' + encodeURIComponent(err.message));
-  }
-});
-
 // ── Public endpoints ────────────────────────────────────────────────────────
 app.get('/api/config', (req, res) => {
   const p = getActiveProfile();
   res.json({ applicationId: p?.application_id || '', locationId: p?.location_id || '' });
-});
-
-app.get('/api/oauth-config', (req, res) => {
-  res.json({ enabled: !!(SQ_CLIENT_ID && SQ_CLIENT_SECRET) });
 });
 
 // ── Protected API ───────────────────────────────────────────────────────────
