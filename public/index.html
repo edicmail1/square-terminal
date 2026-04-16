@@ -1658,7 +1658,10 @@ function editProfile(id) {
   document.getElementById('s-token-hint').textContent = 'Current: ' + p.accessTokenMasked;
   document.getElementById('form-title').textContent = '✏️ Edit Business';
   document.getElementById('btn-cancel-edit').style.display = 'inline-block';
-  document.getElementById('panel-settings').scrollTo({ top: 9999, behavior: 'smooth' });
+  // Switch to the "Add New" sub-tab which hosts the edit form — otherwise it's hidden
+  switchSettingsTab('add');
+  // Scroll the form into view
+  document.getElementById('s-name').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function cancelEdit() {
