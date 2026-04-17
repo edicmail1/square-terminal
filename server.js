@@ -368,7 +368,7 @@ function getProxyAgent(proxyUrl) {
 }
 
 function squareRequest(method, accessToken, apiPath, body, proxyUrl) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const effectiveProxy = proxyUrl !== undefined ? proxyUrl : _currentProxy;
     // SAFETY: refuse all Square API calls without proxy
     if (!effectiveProxy) {
@@ -381,27 +381,44 @@ function squareRequest(method, accessToken, apiPath, body, proxyUrl) {
     }
     const payload = body ? JSON.stringify(body) : null;
     const agent = getProxyAgent(effectiveProxy);
-    const req = https.request({
-      hostname: 'connect.squareup.com',
-      path: apiPath, method,
-      ...(agent ? { agent } : {}),
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Square-Version': '2025-01-23',
-        'Content-Type': 'application/json',
-        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
-      },
-    }, res => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, body: data }); }
-      });
+    // Synthetic error response — never reject, so callers don't need try/catch
+    const errorResponse = (code, detail) => ({
+      status: 502,
+      body: { errors: [{ category: 'API_ERROR', code, detail }] },
+      proxyError: true,
     });
-    req.on('error', reject);
-    if (payload) req.write(payload);
-    req.end();
+    let settled = false;
+    const done = (val) => { if (!settled) { settled = true; resolve(val); } };
+
+    let req;
+    try {
+      req = https.request({
+        hostname: 'connect.squareup.com',
+        path: apiPath, method,
+        ...(agent ? { agent } : {}),
+        timeout: 25000,
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Square-Version': '2025-01-23',
+          'Content-Type': 'application/json',
+          ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+      }, res => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try { done({ status: res.statusCode, body: JSON.parse(data) }); }
+          catch { done({ status: res.statusCode, body: data }); }
+        });
+        res.on('error', e => done(errorResponse('RESPONSE_ERROR', `Response error: ${e.message}`)));
+      });
+      req.on('error', e => done(errorResponse('PROXY_ERROR', `Proxy/network error: ${e.message}`)));
+      req.on('timeout', () => { try { req.destroy(); } catch {} done(errorResponse('TIMEOUT', 'Request timed out after 25s (proxy may be dead)')); });
+      if (payload) req.write(payload);
+      req.end();
+    } catch (e) {
+      done(errorResponse('REQUEST_INIT_ERROR', `Failed to start request: ${e.message}`));
+    }
   });
 }
 
