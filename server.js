@@ -1,4 +1,15 @@
 require('dotenv').config();
+
+// Global crash guards — log & continue instead of letting the process die.
+// Without these, one stray unhandled rejection anywhere crashes the whole
+// panel, which is what caused the 502/200 flap.
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UNHANDLED REJECTION]', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err && err.stack ? err.stack : err);
+});
+
 const express = require('express');
 const { Client, Environment } = require('square');
 const { v4: uuidv4 } = require('uuid');
