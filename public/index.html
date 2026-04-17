@@ -2559,7 +2559,10 @@ async function loadLocations() {
                 <div style="color:${l.capabilities.includes('AUTOMATIC_TRANSFERS') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('AUTOMATIC_TRANSFERS') ? '✅' : '❌'} Автовывод</div>
                 <div style="color:${l.capabilities.includes('UNLINKED_REFUNDS') ? '#10b981' : '#ef4444'}">${l.capabilities.includes('UNLINKED_REFUNDS') ? '✅' : '❌'} Возвраты без привязки</div>
               </div>
-              <button class="btn btn-sm btn-primary" onclick="editLocation('${l.id}')">Edit</button>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+                <button class="btn btn-sm btn-primary" onclick="editLocation('${l.id}')">Edit</button>
+                ${!isActive && l.status === 'ACTIVE' ? `<button class="btn btn-sm" onclick="setProfileLocation('${l.id}','${(l.name || '').replace(/'/g, "\\'")}')" style="background:#ecfdf5;color:#059669;border:1px solid #bbf7d0;">🎯 Сделать текущим</button>` : ''}
+              </div>
             </div>
           </div>
           <div class="loc-stats">
@@ -2608,6 +2611,26 @@ function editLocation(id) {
 
 function cancelEditLocation() {
   document.getElementById('loc-edit-block').style.display = 'none';
+}
+
+async function setProfileLocation(locationId, name) {
+  if (!confirm(`Сделать "${name}" текущей локацией для этого бизнеса?\n\nВсе будущие платежи/инвойсы/подписки пойдут через неё.`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/set-location`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locationId }),
+    });
+    const data = await r.json();
+    if (data.error) { alert('❌ ' + data.error); return; }
+    // Update local cache and reload
+    const p = profilesData.profiles.find(x => x.id === profilesData.activeId);
+    if (p) p.locationId = locationId;
+    document.getElementById('l-location').dataset.loaded = '';
+    await loadLocations();
+    await loadProfiles();
+    alert(`✅ Локация переключена на "${name}"`);
+  } catch (e) { alert('Error: ' + e.message); }
 }
 
 async function saveLocation() {

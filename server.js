@@ -1263,10 +1263,42 @@ app.put('/api/profiles/:id/locations/:locId', requireAuth, async (req, res) => {
     }
   };
 
-  const r = await safeSquareCall(profile, (token) => squareRequest('PUT', token, `/v2/locations/${req.params.locId}`, locationBody));
-  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
-  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
+  // Bypass safeSquareCall's 403 wrapper so we can surface Square's real error
+  _currentProxy = profile.proxy_url || '';
+  const accessToken = getDecryptedToken(profile);
+  if (profile.has_had_proxy === 1 && !profile.proxy_url) {
+    return res.status(403).json({ error: `Профиль "${profile.name}" ранее использовал прокси. Запросы без прокси заблокированы.` });
+  }
+  const r = await squareRequest('PUT', accessToken, `/v2/locations/${req.params.locId}`, locationBody);
+  if (r.status === 401) return res.status(401).json({ error: `Токен для "${profile.name}" истёк. Обновите в настройках.`, tokenExpired: true });
+  if (r.status !== 200) {
+    const rawDetail = r.body?.errors?.[0]?.detail || 'Square error';
+    const rawCode = r.body?.errors?.[0]?.code || '';
+    const rawCategory = r.body?.errors?.[0]?.category || '';
+    let hint = '';
+    if (r.status === 403) {
+      if (mcc) {
+        hint = ' 💡 Для смены MCC создай новую Location с нужным MCC (форма "Create Location" ниже) и нажми "🎯 Сделать текущим" — профиль переключится на неё.';
+      } else {
+        hint = ' 💡 Проверь что для этого Access Token включён scope MERCHANT_PROFILE_WRITE в Square Developer Dashboard → OAuth → Scopes.';
+      }
+    }
+    return res.status(r.status).json({ error: `${rawDetail} [${rawCategory}${rawCode ? '/' + rawCode : ''}]${hint}`, rawError: r.body });
+  }
   res.json({ success: true, location: r.body.location });
+});
+
+// Switch profile's active location_id to a different existing location
+app.post('/api/profiles/:id/set-location', requireAuth, (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { locationId } = req.body || {};
+  if (!locationId) return res.status(400).json({ error: 'locationId required' });
+  dbRun(`UPDATE profiles SET location_id = ?, updated_at = datetime('now') WHERE id = ?`, [locationId, profile.id]);
+  if (profile.is_active) {
+    squareClient = createSquareClient(getProfileById(profile.id));
+  }
+  res.json({ success: true, locationId });
 });
 
 // Create location
