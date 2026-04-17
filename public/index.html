@@ -807,6 +807,56 @@
       <strong style="font-size:13px;color:#111827;">📄 Active Subscriptions</strong>
       <div id="subscriptions-list" style="margin-top:8px;font-size:12px;color:#6b7280;">Click 🔄 to load</div>
     </div>
+
+    <!-- Edit Subscription Modal -->
+    <div id="edit-sub-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px;">
+      <div style="background:white;border-radius:12px;max-width:600px;margin:0 auto;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:16px;color:#111827;">✏️ Редактировать подписку</h3>
+          <button onclick="closeEditSubscription()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">✕</button>
+        </div>
+        <input type="hidden" id="edit-sub-id" />
+        <input type="hidden" id="edit-sub-customer-id" />
+        <div id="edit-sub-info" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;font-size:12px;color:#6b7280;margin-bottom:12px;"></div>
+
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#374151;margin-bottom:6px;">📅 Дата окончания (запланированная отмена)</div>
+          <div id="edit-sub-pending-cancel" style="margin-bottom:8px;display:none;"></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="date" id="edit-sub-end-date" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
+            <button onclick="scheduleSubCancel()" style="background:#f59e0b;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">Запланировать</button>
+          </div>
+          <div style="font-size:11px;color:#6b7280;margin-top:6px;">Подписка отменится в начале этой даты. До неё будет работать как обычно.</div>
+        </div>
+
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#374151;margin-bottom:6px;">💰 Price override</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div class="amount-wrap" style="flex:1;"><span>$</span><input type="number" id="edit-sub-price" placeholder="оставь пустым чтобы снять" step="0.01" min="0" /></div>
+            <button onclick="saveSubPriceOverride()" style="background:#006AFF;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">Применить</button>
+          </div>
+          <div style="font-size:11px;color:#6b7280;margin-top:6px;">Списывать эту сумму вместо цены плана. Пустое поле + Применить = снять override.</div>
+        </div>
+
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#374151;margin-bottom:6px;">💳 Карта</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="edit-sub-card" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;"></select>
+            <button onclick="saveSubCard()" style="background:#006AFF;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">Применить</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#374151;margin-bottom:6px;">📝 Customer note</div>
+          <div style="display:flex;gap:6px;align-items:flex-start;">
+            <textarea id="edit-sub-note" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-height:60px;resize:vertical;" placeholder="Заметка для клиента в квитанциях"></textarea>
+            <button onclick="saveSubNote()" style="background:#006AFF;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;align-self:flex-start;">Применить</button>
+          </div>
+        </div>
+
+        <div id="edit-sub-result" class="result" style="margin-top:8px;"></div>
+      </div>
+    </div>
   </div>
 
   <div class="panel" id="panel-customers">
@@ -3522,6 +3572,7 @@ async function loadSubscriptionsList() {
     list.innerHTML = subs.map(s => {
       const color = statusColors[s.status] || '#6b7280';
       const actions = [];
+      if (['ACTIVE','PAUSED','PENDING'].includes(s.status)) actions.push(`<button onclick='openEditSubscription(${JSON.stringify(s).replace(/'/g, "&apos;")})' style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">✏️ Edit</button>`);
       if (s.status === 'ACTIVE') actions.push(`<button onclick="pauseSubscription('${s.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Pause</button>`);
       if (s.status === 'PAUSED') actions.push(`<button onclick="resumeSubscription('${s.id}')" style="background:#ecfdf5;color:#059669;border:1px solid #bbf7d0;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Resume</button>`);
       if (['ACTIVE','PAUSED','PENDING'].includes(s.status)) actions.push(`<button onclick="cancelSubscription('${s.id}')" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Cancel</button>`);
@@ -3552,8 +3603,9 @@ async function loadSubscriptionsList() {
               Start: ${s.startDate || '—'} · Through: ${s.chargedThroughDate || '—'}
               ${s.priceOverride ? ' · Override: $' + s.priceOverride : ''}
             </div>
+            ${(s.actions || []).length ? `<div style="margin-top:4px;font-size:11px;">${s.actions.map(a => `<span style="background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;padding:2px 7px;border-radius:10px;display:inline-block;margin-right:4px;">⏰ ${a.type} on ${a.effective_date || a.new_plan_variation_id || '—'}</span>`).join('')}</div>` : ''}
           </div>
-          <div style="display:flex;gap:4px;flex-shrink:0;">${actions.join('')}</div>
+          <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">${actions.join('')}</div>
         </div>
       </div>`;
     }).join('');
@@ -3588,6 +3640,185 @@ async function cancelSubscription(id) {
     if (data.error) { alert('Error: ' + data.error); return; }
     loadSubscriptionsList();
   } catch (e) { alert(e.message); }
+}
+
+// ── Edit Subscription ──────────────────────────────────────────────────
+async function openEditSubscription(s) {
+  document.getElementById('edit-sub-modal').style.display = 'block';
+  document.getElementById('edit-sub-id').value = s.id;
+  document.getElementById('edit-sub-customer-id').value = s.customerId;
+  document.getElementById('edit-sub-result').style.display = 'none';
+  document.getElementById('edit-sub-result').innerHTML = '';
+
+  // Info block
+  document.getElementById('edit-sub-info').innerHTML = `
+    <div><strong>${s.planName || 'Subscription'}</strong> · <span style="color:#059669;">${s.status}</span></div>
+    <div style="margin-top:4px;">${s.customerName || s.customerId} ${s.customerEmail ? ' · ' + s.customerEmail : ''}</div>
+    <div style="margin-top:4px;color:#9ca3af;font-size:11px;">Start: ${s.startDate || '—'} · Through: ${s.chargedThroughDate || '—'}</div>
+    <div style="margin-top:2px;color:#9ca3af;font-size:11px;font-family:monospace;">${s.id}</div>`;
+
+  // Pending scheduled actions
+  const pendingEl = document.getElementById('edit-sub-pending-cancel');
+  const pendingCancels = (s.actions || []).filter(a => a.type === 'CANCEL');
+  if (pendingCancels.length) {
+    pendingEl.style.display = 'block';
+    pendingEl.innerHTML = pendingCancels.map(a => `
+      <div style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
+        <span>⏰ Запланирована отмена на <strong>${a.effective_date}</strong></span>
+        <button onclick="deleteSubAction('${a.id}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;">Снять</button>
+      </div>`).join('');
+  } else {
+    pendingEl.style.display = 'none';
+    pendingEl.innerHTML = '';
+  }
+
+  // Prefill end date with chargedThroughDate + 1 day, or today + periods if we can guess
+  document.getElementById('edit-sub-end-date').value = s.chargedThroughDate || '';
+
+  // Price override
+  document.getElementById('edit-sub-price').value = s.priceOverride || '';
+
+  // Customer note
+  document.getElementById('edit-sub-note').value = s.customerNote || '';
+
+  // Load customer's cards for card picker
+  await loadEditSubCards(s.customerId, s.cardId);
+}
+
+async function loadEditSubCards(customerId, currentCardId) {
+  const sel = document.getElementById('edit-sub-card');
+  sel.innerHTML = '<option>Loading...</option>';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers/${customerId}/cards`, { credentials: 'include' });
+    const data = await r.json();
+    const cards = (data.cards || []).filter(c => c.enabled !== false);
+    if (!cards.length) {
+      sel.innerHTML = '<option value="">(нет карт)</option>';
+      return;
+    }
+    sel.innerHTML = cards.map(c => {
+      const label = `${c.brand || c.card_brand || '?'} ****${c.last4 || c.last_4 || '?'} · exp ${c.expMonth || c.exp_month}/${c.expYear || c.exp_year}`;
+      return `<option value="${c.id}" ${c.id === currentCardId ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+  } catch (e) {
+    sel.innerHTML = `<option value="">Error: ${e.message}</option>`;
+  }
+}
+
+function closeEditSubscription() {
+  document.getElementById('edit-sub-modal').style.display = 'none';
+}
+
+function showEditSubResult(cls, msg) {
+  const el = document.getElementById('edit-sub-result');
+  el.className = 'result ' + cls;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
+async function scheduleSubCancel() {
+  const id = document.getElementById('edit-sub-id').value;
+  const date = document.getElementById('edit-sub-end-date').value;
+  if (!date) { showEditSubResult('error', 'Выбери дату'); return; }
+  if (!confirm(`Запланировать отмену подписки на ${date}?`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/schedule-action`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'CANCEL', effectiveDate: date }),
+    });
+    const data = await r.json();
+    if (data.error) { showEditSubResult('error', '❌ ' + data.error); return; }
+    showEditSubResult('success', '✅ Отмена запланирована на ' + date);
+    await refreshEditSub();
+    loadSubscriptionsList();
+  } catch (e) { showEditSubResult('error', e.message); }
+}
+
+async function deleteSubAction(actionId) {
+  const id = document.getElementById('edit-sub-id').value;
+  if (!confirm('Снять запланированное действие?')) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/actions/${actionId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) { showEditSubResult('error', '❌ ' + data.error); return; }
+    showEditSubResult('success', '✅ Действие снято. Подписка продолжит работу.');
+    await refreshEditSub();
+    loadSubscriptionsList();
+  } catch (e) { showEditSubResult('error', e.message); }
+}
+
+async function saveSubPriceOverride() {
+  const id = document.getElementById('edit-sub-id').value;
+  const price = document.getElementById('edit-sub-price').value.trim();
+  const body = price === '' ? { clearPriceOverride: true } : { priceOverride: price };
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { showEditSubResult('error', '❌ ' + data.error); return; }
+    showEditSubResult('success', price === '' ? '✅ Price override снят' : `✅ Price override = $${price}`);
+    loadSubscriptionsList();
+  } catch (e) { showEditSubResult('error', e.message); }
+}
+
+async function saveSubCard() {
+  const id = document.getElementById('edit-sub-id').value;
+  const cardId = document.getElementById('edit-sub-card').value;
+  if (!cardId) { showEditSubResult('error', 'Выбери карту'); return; }
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cardId }),
+    });
+    const data = await r.json();
+    if (data.error) { showEditSubResult('error', '❌ ' + data.error); return; }
+    showEditSubResult('success', '✅ Карта обновлена');
+    loadSubscriptionsList();
+  } catch (e) { showEditSubResult('error', e.message); }
+}
+
+async function saveSubNote() {
+  const id = document.getElementById('edit-sub-id').value;
+  const note = document.getElementById('edit-sub-note').value;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerNote: note }),
+    });
+    const data = await r.json();
+    if (data.error) { showEditSubResult('error', '❌ ' + data.error); return; }
+    showEditSubResult('success', '✅ Заметка обновлена');
+    loadSubscriptionsList();
+  } catch (e) { showEditSubResult('error', e.message); }
+}
+
+async function refreshEditSub() {
+  // Reload single subscription to refresh scheduled actions inside the modal
+  const id = document.getElementById('edit-sub-id').value;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}`, { credentials: 'include' });
+    const data = await r.json();
+    if (!data.subscription) return;
+    const s = data.subscription;
+    const pendingEl = document.getElementById('edit-sub-pending-cancel');
+    const pendingCancels = (s.actions || []).filter(a => a.type === 'CANCEL');
+    if (pendingCancels.length) {
+      pendingEl.style.display = 'block';
+      pendingEl.innerHTML = pendingCancels.map(a => `
+        <div style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
+          <span>⏰ Запланирована отмена на <strong>${a.effective_date}</strong></span>
+          <button onclick="deleteSubAction('${a.id}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;">Снять</button>
+        </div>`).join('');
+    } else {
+      pendingEl.style.display = 'none';
+      pendingEl.innerHTML = '';
+    }
+  } catch (_) {}
 }
 
 async function loadSubscriptions() {

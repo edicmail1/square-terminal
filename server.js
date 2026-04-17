@@ -2022,6 +2022,9 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       chargedThroughDate: s.charged_through_date,
       canceledDate: s.canceled_date, createdAt: s.created_at,
       priceOverride: s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : null,
+      priceOverrideRaw: s.price_override_money || null,
+      customerNote: s.invoice_request_method ? '' : (s.customer_note || ''),
+      actions: s.actions || [], // scheduled pause/cancel/resume
       // Plan info
       planName: plan.planName || '',
       cadence: plan.cadence || '',
@@ -2063,6 +2066,75 @@ app.post('/api/profiles/:id/subscriptions/:subId/cancel', requireAuth, async (re
   const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/subscriptions/${req.params.subId}/cancel`, {}));
   if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ subscription: r.body.subscription });
+});
+
+// Get single subscription (raw) — used by Edit modal to refresh after changes
+app.get('/api/profiles/:id/subscriptions/:subId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const r = await safeSquareCall(profile, (token) => squareGet(token, `/v2/subscriptions/${req.params.subId}?include=actions`));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed' });
+  res.json({ subscription: r.body.subscription });
+});
+
+// Schedule an action on a subscription (CANCEL / PAUSE / RESUME / SWAP_PLAN on a future date)
+app.post('/api/profiles/:id/subscriptions/:subId/schedule-action', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { type, effectiveDate, newPlanVariationId, monthlyBillingAnchorDate } = req.body || {};
+  if (!type) return res.status(400).json({ error: 'type required (CANCEL|PAUSE|RESUME|SWAP_PLAN)' });
+  if (!effectiveDate && type !== 'RESUME') return res.status(400).json({ error: 'effectiveDate required (YYYY-MM-DD)' });
+
+  const action = { type };
+  if (effectiveDate) action.effective_date = effectiveDate;
+  if (type === 'SWAP_PLAN') {
+    if (!newPlanVariationId) return res.status(400).json({ error: 'newPlanVariationId required for SWAP_PLAN' });
+    action.new_plan_variation_id = newPlanVariationId;
+    if (monthlyBillingAnchorDate) action.monthly_billing_anchor_date = monthlyBillingAnchorDate;
+  }
+
+  const r = await safeSquareCall(profile, (token) => squarePost(token, `/v2/subscriptions/${req.params.subId}/actions`, {
+    action,
+    idempotency_key: crypto.randomUUID(),
+  }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to schedule action', debug: r.body });
+  res.json({ subscription: r.body.subscription, action: r.body.actions?.[0] || null });
+});
+
+// Delete a scheduled action — e.g. undo a scheduled CANCEL
+app.delete('/api/profiles/:id/subscriptions/:subId/actions/:actionId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const r = await safeSquareCall(profile, (token) => squareRequest('DELETE', token, `/v2/subscriptions/${req.params.subId}/actions/${req.params.actionId}`, null));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to delete action' });
+  res.json({ subscription: r.body.subscription });
+});
+
+// Update subscription fields — price override / customer note / card
+app.put('/api/profiles/:id/subscriptions/:subId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { priceOverride, clearPriceOverride, customerNote, cardId } = req.body || {};
+  const subscription = {};
+  if (clearPriceOverride) {
+    subscription.price_override_money = null;
+  } else if (priceOverride !== undefined && priceOverride !== null && priceOverride !== '') {
+    const cents = Math.round(parseFloat(priceOverride) * 100);
+    if (Number.isNaN(cents) || cents < 0) return res.status(400).json({ error: 'priceOverride must be a positive number' });
+    subscription.price_override_money = { amount: cents, currency: 'USD' };
+  }
+  if (customerNote !== undefined) subscription.customer_note = customerNote || '';
+  if (cardId !== undefined) subscription.card_id = cardId || null;
+
+  if (Object.keys(subscription).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  const r = await safeSquareCall(profile, (token) => squareRequest('PUT', token, `/v2/subscriptions/${req.params.subId}`, { subscription }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to update subscription', debug: r.body });
   res.json({ subscription: r.body.subscription });
 });
 
