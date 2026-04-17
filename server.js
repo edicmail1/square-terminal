@@ -2351,12 +2351,46 @@ app.post('/api/profiles/:id/subscription-link', requireAuth, async (req, res) =>
   if (!planVariationId) return res.status(400).json({ error: 'planVariationId required' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
-  const r = await squarePost(accessToken, '/v2/online-checkout/payment-links', {
+
+  // Inspect plan variation — RELATIVE needs order+catalog_object_id, STATIC can use quick_pay
+  const varRes = await squareGet(accessToken, `/v2/catalog/object/${planVariationId}?include_related_objects=true`);
+  if (varRes.status !== 200) return res.status(varRes.status).json({ error: varRes.body?.errors?.[0]?.detail || 'Plan variation not found' });
+  const varData = varRes.body?.object?.subscription_plan_variation_data;
+  const phase = varData?.phases?.[0];
+  const pricingType = phase?.pricing?.type;
+  const planVarName = varData?.name || 'Subscription';
+
+  const body = {
     idempotency_key: crypto.randomUUID(),
-    checkout_options: {
-      subscription_plan_id: planVariationId,
-    },
-  });
+    checkout_options: { subscription_plan_id: planVariationId },
+  };
+
+  if (pricingType === 'RELATIVE' && varData?.subscription_plan_id) {
+    // Find linked item variation
+    const planObj = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
+    const eligibleItemIds = planObj.body?.object?.subscription_plan_data?.eligible_item_ids || [];
+    let itemVarId = null;
+    if (eligibleItemIds.length > 0) {
+      const itemObj = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
+      itemVarId = itemObj.body?.object?.item_data?.variations?.[0]?.id;
+    }
+    if (!itemVarId) return res.status(400).json({ error: 'RELATIVE plan is not linked to a Catalog Item — recreate the plan or add an eligible item.' });
+    body.order = {
+      location_id: profile.location_id,
+      line_items: [{ quantity: '1', catalog_object_id: itemVarId }],
+    };
+  } else if (pricingType === 'STATIC' && phase?.pricing?.price_money) {
+    // Legacy STATIC plans — use quick_pay with the phase price
+    body.quick_pay = {
+      name: planVarName,
+      price_money: phase.pricing.price_money,
+      location_id: profile.location_id,
+    };
+  } else {
+    return res.status(400).json({ error: `Unsupported plan pricing: ${pricingType || 'unknown'}. Plan has no price or linked item.` });
+  }
+
+  const r = await squarePost(accessToken, '/v2/online-checkout/payment-links', body);
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription link' });
   const link = r.body.payment_link;
   res.json({ success: true, url: link.url, longUrl: link.long_url, linkId: link.id });
