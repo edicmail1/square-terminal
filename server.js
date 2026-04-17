@@ -1295,10 +1295,12 @@ app.post('/api/profiles/:id/set-location', requireAuth, (req, res) => {
   const { locationId } = req.body || {};
   if (!locationId) return res.status(400).json({ error: 'locationId required' });
   dbRun(`UPDATE profiles SET location_id = ?, updated_at = datetime('now') WHERE id = ?`, [locationId, profile.id]);
+  const updated = getProfileById(profile.id);
   if (profile.is_active) {
-    squareClient = createSquareClient(getProfileById(profile.id));
+    squareClient = createSquareClient(updated);
   }
-  res.json({ success: true, locationId });
+  // Echo back the actual stored value so frontend can verify
+  res.json({ success: true, locationId, storedLocationId: updated.location_id, profileName: updated.name });
 });
 
 // Create location

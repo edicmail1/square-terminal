@@ -1600,8 +1600,10 @@ async function loadMerchantInfo(profileId) {
     const isActive = m.status === 'ACTIVE';
     const statusDot = `<span class="status-dot ${isActive ? 'active' : 'inactive'}"></span>`;
     const activeLocs = (locData.locations || []).filter(l => l.status === 'ACTIVE');
+    // Pick the profile's CURRENT location first (the one with isActive=true), fall back to first active
+    const currentLoc = (locData.locations || []).find(l => l.isActive) || activeLocs[0];
     const canPay = activeLocs.some(l => l.canProcessPayments);
-    const mcc = activeLocs[0]?.mcc || '';
+    const mcc = currentLoc?.mcc || '';
     const mccDesc = typeof getMccDescription === 'function' ? getMccDescription(mcc) : '';
 
     // Update compact summary (always visible)
@@ -2621,15 +2623,27 @@ async function setProfileLocation(locationId, name) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ locationId }),
     });
+    // Detect HTML response (Render 502 / auth redirect)
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('json')) {
+      alert(`❌ Сервер вернул не-JSON (HTTP ${r.status}). Возможно деплой ещё идёт — подожди 30 секунд и попробуй снова.`);
+      return;
+    }
     const data = await r.json();
     if (data.error) { alert('❌ ' + data.error); return; }
-    // Update local cache and reload
+    // Verify backend actually saved the new location_id
+    if (data.storedLocationId !== locationId) {
+      alert(`⚠️ Backend saved ${data.storedLocationId} instead of ${locationId}. Что-то пошло не так.`);
+      return;
+    }
+    // Clear all caches, force full reload
+    for (const k of Object.keys(locationsCache)) delete locationsCache[k];
     const p = profilesData.profiles.find(x => x.id === profilesData.activeId);
     if (p) p.locationId = locationId;
     document.getElementById('l-location').dataset.loaded = '';
-    await loadLocations();
     await loadProfiles();
-    alert(`✅ Локация переключена на "${name}"`);
+    await loadLocations();
+    alert(`✅ Локация переключена на "${name}".\n\nЗайди в Settings и нажми ▼ Подробнее у этого бизнеса — карточка должна обновиться с новым MCC.`);
   } catch (e) { alert('Error: ' + e.message); }
 }
 
