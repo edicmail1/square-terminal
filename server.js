@@ -1849,11 +1849,153 @@ app.get('/api/profiles/:id/plans', requireAuth, async (req, res) => {
         periods: phase?.periods || null,
         amount,
         currency: phase?.pricing?.price_money?.currency || 'USD',
+        pricingType: phase?.pricing?.type || '',
       };
     });
     return { id: obj.id, name: obj.subscription_plan_data?.name || '', variations };
   });
   res.json({ plans });
+});
+
+// Helper: check if a plan variation has any non-CANCELED subscriptions
+async function planVariationHasActiveSubs(accessToken, locationId, variationId) {
+  const r = await squarePost(accessToken, '/v2/subscriptions/search', {
+    query: { filter: { location_ids: [locationId], plan_ids: [variationId] } },
+    limit: 50,
+  });
+  if (r.status !== 200) return { error: r.body?.errors?.[0]?.detail || 'Failed to search subscriptions' };
+  const live = (r.body.subscriptions || []).filter(s => s.status !== 'CANCELED' && s.status !== 'DEACTIVATED');
+  return { hasActive: live.length > 0, count: live.length };
+}
+
+// Update subscription plan (rename)
+app.put('/api/profiles/:id/plans/:planId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { name } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'name required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  const getRes = await squareGet(accessToken, `/v2/catalog/object/${req.params.planId}`);
+  if (getRes.status !== 200) return res.status(getRes.status).json({ error: getRes.body?.errors?.[0]?.detail || 'Plan not found' });
+  const obj = getRes.body.object;
+  obj.subscription_plan_data.name = name.trim();
+
+  const upRes = await squarePost(accessToken, '/v2/catalog/object', {
+    object: obj, idempotency_key: crypto.randomUUID(),
+  });
+  if (upRes.status !== 200) return res.status(upRes.status).json({ error: upRes.body?.errors?.[0]?.detail || 'Failed', debug: upRes.body });
+  res.json({ plan: upRes.body.catalog_object });
+});
+
+// Update plan variation — name / cadence / periods / price (RELATIVE: price applied to linked Item)
+app.put('/api/profiles/:id/plans/:planId/variations/:varId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { name, cadence, periods, amount } = req.body || {};
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  const getRes = await squareGet(accessToken, `/v2/catalog/object/${req.params.varId}`);
+  if (getRes.status !== 200) return res.status(getRes.status).json({ error: getRes.body?.errors?.[0]?.detail || 'Variation not found' });
+  const obj = getRes.body.object;
+  const varData = obj.subscription_plan_variation_data;
+  const phase = varData?.phases?.[0];
+  if (!phase) return res.status(400).json({ error: 'Variation has no phases' });
+  const pricingType = phase.pricing?.type;
+
+  // Check for active subscriptions if changing cadence/periods
+  const changingStructure = (cadence !== undefined && cadence !== phase.cadence) || (periods !== undefined && periods !== (phase.periods ?? null));
+  if (changingStructure) {
+    const check = await planVariationHasActiveSubs(accessToken, profile.location_id, req.params.varId);
+    if (check.error) return res.status(400).json({ error: 'Could not verify active subscriptions: ' + check.error });
+    if (check.hasActive) return res.status(400).json({ error: `Cannot change cadence/periods: ${check.count} active subscription(s) exist. Cancel them first.` });
+  }
+
+  // Apply name / cadence / periods
+  if (name !== undefined) varData.name = name.trim();
+  if (cadence !== undefined) phase.cadence = cadence;
+  if (periods !== undefined) {
+    if (periods === null || periods === '' || periods === 0) delete phase.periods;
+    else phase.periods = Number(periods);
+  }
+
+  // For STATIC plans, try to update phase.pricing.price_money
+  if (amount !== undefined && amount !== null && amount !== '') {
+    const cents = Math.round(parseFloat(amount) * 100);
+    if (Number.isNaN(cents) || cents < 0) return res.status(400).json({ error: 'amount must be a positive number' });
+    if (pricingType === 'STATIC') {
+      // Square won't allow updating price amount on existing STATIC variation — it will error out
+      return res.status(400).json({
+        error: 'STATIC (Legacy) plan pricing cannot be updated via API. Create a new variation or new plan instead.',
+      });
+    }
+    // RELATIVE — update the linked Item variation's price_money
+    if (pricingType === 'RELATIVE' && varData.subscription_plan_id) {
+      const planRes = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
+      const eligibleItemIds = planRes.body?.object?.subscription_plan_data?.eligible_item_ids || [];
+      if (!eligibleItemIds.length) return res.status(400).json({ error: 'RELATIVE plan has no linked item' });
+      const itemRes = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
+      const itemObj = itemRes.body?.object;
+      const firstVar = itemObj?.item_data?.variations?.[0];
+      if (!firstVar) return res.status(400).json({ error: 'Linked item has no variation' });
+      // Update the item variation's price by upserting a modified variation object
+      firstVar.item_variation_data.price_money = { amount: cents, currency: 'USD' };
+      firstVar.item_variation_data.pricing_type = 'FIXED_PRICING';
+      // Upsert the full item (variations are children of ITEM)
+      const upItemRes = await squarePost(accessToken, '/v2/catalog/object', {
+        object: itemObj, idempotency_key: crypto.randomUUID(),
+      });
+      if (upItemRes.status !== 200) return res.status(upItemRes.status).json({ error: 'Failed to update linked item price: ' + (upItemRes.body?.errors?.[0]?.detail || 'unknown'), debug: upItemRes.body });
+    }
+  }
+
+  // Save the variation itself (for name/cadence/periods changes)
+  const upRes = await squarePost(accessToken, '/v2/catalog/object', {
+    object: obj, idempotency_key: crypto.randomUUID(),
+  });
+  if (upRes.status !== 200) return res.status(upRes.status).json({ error: upRes.body?.errors?.[0]?.detail || 'Failed', debug: upRes.body });
+  res.json({ variation: upRes.body.catalog_object });
+});
+
+// Delete a plan variation (if no active subscriptions)
+app.delete('/api/profiles/:id/plans/:planId/variations/:varId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  const check = await planVariationHasActiveSubs(accessToken, profile.location_id, req.params.varId);
+  if (check.error) return res.status(400).json({ error: 'Could not verify active subscriptions: ' + check.error });
+  if (check.hasActive) return res.status(400).json({ error: `Cannot delete: ${check.count} active subscription(s) use this variation. Cancel them first.` });
+
+  const delRes = await squareRequest('DELETE', accessToken, `/v2/catalog/object/${req.params.varId}`, null);
+  if (delRes.status !== 200) return res.status(delRes.status).json({ error: delRes.body?.errors?.[0]?.detail || 'Failed to delete variation' });
+  res.json({ success: true, deletedIds: delRes.body.deleted_object_ids });
+});
+
+// Delete a plan (and all its variations — Square cascades automatically)
+app.delete('/api/profiles/:id/plans/:planId', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  // Get the plan to find all its variations; check each for active subs
+  const getRes = await squareGet(accessToken, `/v2/catalog/object/${req.params.planId}`);
+  if (getRes.status !== 200) return res.status(getRes.status).json({ error: getRes.body?.errors?.[0]?.detail || 'Plan not found' });
+  const plan = getRes.body.object;
+  const varIds = (plan.subscription_plan_data?.subscription_plan_variations || []).map(v => v.id);
+  for (const vid of varIds) {
+    const check = await planVariationHasActiveSubs(accessToken, profile.location_id, vid);
+    if (check.error) return res.status(400).json({ error: 'Could not verify active subs for variation ' + vid + ': ' + check.error });
+    if (check.hasActive) return res.status(400).json({ error: `Cannot delete plan: variation ${vid.slice(0,8)}… has ${check.count} active subscription(s). Cancel them first.` });
+  }
+
+  const delRes = await squareRequest('DELETE', accessToken, `/v2/catalog/object/${req.params.planId}`, null);
+  if (delRes.status !== 200) return res.status(delRes.status).json({ error: delRes.body?.errors?.[0]?.detail || 'Failed to delete plan' });
+  res.json({ success: true, deletedIds: delRes.body.deleted_object_ids });
 });
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────

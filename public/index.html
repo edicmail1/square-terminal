@@ -808,6 +808,30 @@
       <div id="subscriptions-list" style="margin-top:8px;font-size:12px;color:#6b7280;">Click 🔄 to load</div>
     </div>
 
+    <!-- Edit Plan Modal -->
+    <div id="edit-plan-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px;">
+      <div style="background:white;border-radius:12px;max-width:700px;margin:0 auto;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:16px;color:#111827;">✏️ Редактировать план</h3>
+          <button onclick="closeEditPlan()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">✕</button>
+        </div>
+        <input type="hidden" id="edit-plan-id" />
+
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#374151;margin-bottom:6px;">📦 Название плана</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="text" id="edit-plan-name" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
+            <button onclick="savePlanName()" style="background:#006AFF;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;">Применить</button>
+          </div>
+        </div>
+
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#374151;margin:14px 0 6px;">📊 Вариации</div>
+        <div id="edit-plan-variations"></div>
+
+        <div id="edit-plan-result" class="result" style="margin-top:8px;"></div>
+      </div>
+    </div>
+
     <!-- Edit Subscription Modal -->
     <div id="edit-sub-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px;">
       <div style="background:white;border-radius:12px;max-width:600px;margin:0 auto;padding:20px;">
@@ -3513,20 +3537,149 @@ async function loadPlans() {
     }
     list.innerHTML = plans.map(p => {
       const vars = p.variations || [];
-      return vars.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6;gap:8px;">
-        <span><strong>${p.name}</strong> — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}${v.periods ? ' ×' + v.periods : ''}</span>
-        <div style="display:flex;gap:4px;align-items:center;">
-          <button onclick="genSubLink('${v.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;white-space:nowrap;">🔗 Link</button>
-          <span style="color:#9ca3af;font-size:10px;">${v.id.slice(0, 12)}…</span>
+      return `<div style="padding:8px 0;border-bottom:1px solid #e5e7eb;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;">
+          <strong style="font-size:13px;color:#111827;">${p.name}</strong>
+          <div style="display:flex;gap:4px;">
+            <button onclick='openEditPlan(${JSON.stringify(p).replace(/'/g, "&apos;")})' style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">✏️ Edit</button>
+            <button onclick="deletePlan('${p.id}','${p.name.replace(/'/g, "\\'")}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">🗑</button>
+          </div>
         </div>
-      </div>
-      <div id="sub-link-${v.id}" style="display:none;padding:4px 0 8px;"></div>`).join('');
+        ${vars.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 4px 12px;gap:8px;">
+          <span style="font-size:12px;color:#374151;">• $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}${v.periods ? ' ×' + v.periods : ''}${v.name ? ' · ' + v.name : ''}${v.pricingType === 'STATIC' ? ' <span style="color:#f59e0b;font-size:10px;">[Legacy]</span>' : ''}</span>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <button onclick="genSubLink('${v.id}')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;white-space:nowrap;">🔗 Link</button>
+            <button onclick="deleteVariation('${p.id}','${v.id}','${v.name || p.name}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">🗑</button>
+            <span style="color:#9ca3af;font-size:10px;">${v.id.slice(0, 10)}…</span>
+          </div>
+        </div>
+        <div id="sub-link-${v.id}" style="display:none;padding:4px 0 4px 12px;"></div>`).join('')}
+      </div>`;
     }).join('');
     // Populate plan select for new subscription
     planSelect.innerHTML = plans.flatMap(p => (p.variations || []).map(v =>
       `<option value="${v.id}">${p.name} — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}</option>`
     )).join('');
   } catch (e) { list.innerHTML = `<span style="color:#ef4444">${e.message}</span>`; }
+}
+
+// ── Edit Plan ──────────────────────────────────────────────────────────
+const CADENCE_OPTIONS = ['DAILY','WEEKLY','EVERY_TWO_WEEKS','THIRTY_DAYS','MONTHLY','EVERY_TWO_MONTHS','QUARTERLY','EVERY_FOUR_MONTHS','EVERY_SIX_MONTHS','ANNUAL','EVERY_TWO_YEARS'];
+
+function openEditPlan(plan) {
+  document.getElementById('edit-plan-modal').style.display = 'block';
+  document.getElementById('edit-plan-id').value = plan.id;
+  document.getElementById('edit-plan-name').value = plan.name || '';
+  document.getElementById('edit-plan-result').style.display = 'none';
+  document.getElementById('edit-plan-result').innerHTML = '';
+
+  const varsEl = document.getElementById('edit-plan-variations');
+  const vars = plan.variations || [];
+  if (!vars.length) {
+    varsEl.innerHTML = '<div style="padding:10px;background:#fef2f2;color:#991b1b;border-radius:6px;font-size:12px;">Вариаций нет</div>';
+    return;
+  }
+  varsEl.innerHTML = vars.map(v => {
+    const legacy = v.pricingType === 'STATIC';
+    const cadenceOpts = CADENCE_OPTIONS.map(c => `<option value="${c}" ${c === v.cadence ? 'selected' : ''}>${c.toLowerCase().replace(/_/g,' ')}</option>`).join('');
+    return `
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div><label style="font-size:11px;color:#6b7280;">Имя вариации</label>
+          <input type="text" id="ep-name-${v.id}" value="${v.name || ''}" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;" /></div>
+        <div><label style="font-size:11px;color:#6b7280;">Cadence</label>
+          <select id="ep-cadence-${v.id}" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">${cadenceOpts}</select></div>
+        <div><label style="font-size:11px;color:#6b7280;">Periods (кол-во циклов, пусто = бесконечно)</label>
+          <input type="number" id="ep-periods-${v.id}" value="${v.periods || ''}" min="1" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;" /></div>
+        <div><label style="font-size:11px;color:#6b7280;">Цена ($) ${legacy ? '<span style="color:#f59e0b;">[Legacy — readonly]</span>' : ''}</label>
+          <input type="number" id="ep-amount-${v.id}" value="${v.amount || ''}" step="0.01" min="0" ${legacy ? 'disabled' : ''} style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;${legacy ? 'background:#f9fafb;color:#9ca3af;' : ''}" /></div>
+      </div>
+      <div style="display:flex;gap:6px;justify-content:space-between;align-items:center;">
+        <span style="font-size:10px;color:#9ca3af;font-family:monospace;">${v.id}</span>
+        <div style="display:flex;gap:4px;">
+          <button onclick="saveVariation('${v.id}', ${legacy})" style="background:#006AFF;color:white;border:none;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;">Сохранить</button>
+          <button onclick="deleteVariation('${document.getElementById('edit-plan-id').value}','${v.id}','${(v.name || '').replace(/'/g, "\\'")}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;padding:4px 12px;font-size:11px;cursor:pointer;">🗑 Удалить</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function closeEditPlan() {
+  document.getElementById('edit-plan-modal').style.display = 'none';
+}
+
+function showEditPlanResult(cls, msg) {
+  const el = document.getElementById('edit-plan-result');
+  el.className = 'result ' + cls;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
+async function savePlanName() {
+  const id = document.getElementById('edit-plan-id').value;
+  const name = document.getElementById('edit-plan-name').value.trim();
+  if (!name) { showEditPlanResult('error', 'Имя обязательно'); return; }
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/plans/${id}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    const data = await r.json();
+    if (data.error) { showEditPlanResult('error', '❌ ' + data.error); return; }
+    showEditPlanResult('success', '✅ Имя плана обновлено');
+    loadPlans();
+  } catch (e) { showEditPlanResult('error', e.message); }
+}
+
+async function saveVariation(varId, legacy) {
+  const planId = document.getElementById('edit-plan-id').value;
+  const name = document.getElementById(`ep-name-${varId}`).value.trim();
+  const cadence = document.getElementById(`ep-cadence-${varId}`).value;
+  const periodsStr = document.getElementById(`ep-periods-${varId}`).value.trim();
+  const amountStr = document.getElementById(`ep-amount-${varId}`).value.trim();
+  const body = { name, cadence };
+  body.periods = periodsStr === '' ? null : parseInt(periodsStr);
+  if (!legacy && amountStr !== '') body.amount = parseFloat(amountStr);
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/plans/${planId}/variations/${varId}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { showEditPlanResult('error', '❌ ' + data.error); return; }
+    showEditPlanResult('success', '✅ Вариация сохранена');
+    loadPlans();
+  } catch (e) { showEditPlanResult('error', e.message); }
+}
+
+async function deleteVariation(planId, varId, label) {
+  if (!confirm(`Удалить вариацию "${label}"?\nЭто необратимо. Подписки на эту вариацию должны быть отменены заранее.`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/plans/${planId}/variations/${varId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) {
+      if (document.getElementById('edit-plan-modal').style.display === 'block') showEditPlanResult('error', '❌ ' + data.error);
+      else alert('❌ ' + data.error);
+      return;
+    }
+    if (document.getElementById('edit-plan-modal').style.display === 'block') showEditPlanResult('success', '✅ Вариация удалена');
+    loadPlans();
+  } catch (e) { alert(e.message); }
+}
+
+async function deletePlan(planId, label) {
+  if (!confirm(`Удалить план "${label}" целиком?\nУдалятся все его вариации. Подписки должны быть отменены заранее.`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/plans/${planId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) { alert('❌ ' + data.error); return; }
+    loadPlans();
+  } catch (e) { alert(e.message); }
 }
 
 async function createSubscription() {
