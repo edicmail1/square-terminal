@@ -150,6 +150,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_profile ON transactions(profile_id);
   CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+  CREATE TABLE IF NOT EXISTS subscription_link_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    link_id TEXT,
+    link_url TEXT,
+    long_url TEXT,
+    plan_variation_id TEXT NOT NULL,
+    plan_name TEXT,
+    variation_name TEXT,
+    amount INTEGER,
+    currency TEXT,
+    recipient_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_sublinks_profile ON subscription_link_logs(profile_id);
+  CREATE INDEX IF NOT EXISTS idx_sublinks_created ON subscription_link_logs(created_at DESC);
 `);
 
 // Clean up expired sessions periodically
@@ -2421,7 +2438,186 @@ app.post('/api/profiles/:id/subscription-link', requireAuth, async (req, res) =>
   const r = await squarePost(accessToken, '/v2/online-checkout/payment-links', body);
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription link' });
   const link = r.body.payment_link;
+
+  // Resolve plan name + first-charge amount for the log
+  let planName = '';
+  try {
+    if (varData?.subscription_plan_id) {
+      const planObj2 = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
+      planName = planObj2.body?.object?.subscription_plan_data?.name || '';
+    }
+  } catch (_) {}
+  let amountCents = null;
+  let currency = 'USD';
+  if (pricingType === 'STATIC' && phase?.pricing?.price_money) {
+    amountCents = Number(phase.pricing.price_money.amount || 0);
+    currency = phase.pricing.price_money.currency || 'USD';
+  } else if (pricingType === 'RELATIVE' && body.order?.line_items?.[0]?.catalog_object_id) {
+    try {
+      const varObj = await squareGet(accessToken, `/v2/catalog/object/${body.order.line_items[0].catalog_object_id}`);
+      const priceMoney = varObj.body?.object?.item_variation_data?.price_money;
+      if (priceMoney) { amountCents = Number(priceMoney.amount || 0); currency = priceMoney.currency || 'USD'; }
+    } catch (_) {}
+  }
+
+  try {
+    dbRun(
+      `INSERT INTO subscription_link_logs (profile_id, link_id, link_url, long_url, plan_variation_id, plan_name, variation_name, amount, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [profile.id, link.id, link.url, link.long_url || '', planVariationId, planName, planVarName, amountCents, currency]
+    );
+  } catch (e) { console.error('[sub-link log]', e.message); }
+
   res.json({ success: true, url: link.url, longUrl: link.long_url, linkId: link.id });
+});
+
+// List subscription link logs for a profile
+app.get('/api/profiles/:id/subscription-links', requireAuth, (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const logs = dbAll(
+    `SELECT id, link_id, link_url, long_url, plan_variation_id, plan_name, variation_name, amount, currency, recipient_note, created_at
+     FROM subscription_link_logs WHERE profile_id = ? ORDER BY created_at DESC LIMIT 200`,
+    [profile.id]
+  );
+  res.json({ links: logs });
+});
+
+// Update the recipient_note on a sub-link log
+app.post('/api/profiles/:id/subscription-links/:logId/note', requireAuth, (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { note } = req.body || {};
+  dbRun(`UPDATE subscription_link_logs SET recipient_note = ? WHERE id = ? AND profile_id = ?`,
+    [note || '', req.params.logId, profile.id]);
+  res.json({ success: true });
+});
+
+// Customer diagnostics — finds customer(s) by email/name/phone/id and returns
+// a full snapshot: cards, recent payments (including FAILED), subscriptions.
+app.get('/api/profiles/:id/customer-diag', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q (email / name / phone / customer id) required' });
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  const out = { query: q, matched: [], raw: {} };
+
+  // 1. Try as direct customer ID
+  let customers = [];
+  if (/^[A-Z0-9]{20,}$/i.test(q)) {
+    const r = await squareGet(accessToken, `/v2/customers/${encodeURIComponent(q)}`);
+    if (r.status === 200 && r.body.customer) customers.push(r.body.customer);
+  }
+
+  // 2. Search by email
+  if (customers.length === 0 && q.includes('@')) {
+    const r = await squarePost(accessToken, '/v2/customers/search', { query: { filter: { email_address: { exact: q } } }, limit: 20 });
+    if (r.status === 200) customers = r.body.customers || [];
+    if (customers.length === 0) {
+      // fuzzy email (contains)
+      const r2 = await squarePost(accessToken, '/v2/customers/search', { query: { filter: { email_address: { fuzzy: q } } }, limit: 20 });
+      if (r2.status === 200) customers = r2.body.customers || [];
+    }
+  }
+
+  // 3. Search by phone if q looks like digits
+  if (customers.length === 0 && /^[+\d\-() ]{7,}$/.test(q)) {
+    const r = await squarePost(accessToken, '/v2/customers/search', { query: { filter: { phone_number: { exact: q.replace(/[^+\d]/g, '') } } }, limit: 20 });
+    if (r.status === 200) customers = r.body.customers || [];
+  }
+
+  // 4. Search by name — pull recent customers, filter locally (Square has no name filter)
+  if (customers.length === 0) {
+    const r = await squarePost(accessToken, '/v2/customers/search', { query: { sort: { field: 'CREATED_AT', order: 'DESC' } }, limit: 100 });
+    if (r.status === 200) {
+      const low = q.toLowerCase();
+      customers = (r.body.customers || []).filter(c => {
+        const full = `${c.given_name || ''} ${c.family_name || ''}`.toLowerCase().trim();
+        return full.includes(low) || (c.company_name || '').toLowerCase().includes(low);
+      });
+    }
+  }
+
+  if (customers.length === 0) return res.json({ query: q, matched: [], message: 'No customers found' });
+
+  // For each customer, fetch cards + subscriptions + recent payments (filtered by customer_id)
+  for (const c of customers.slice(0, 5)) {
+    const [cardsRes, subsRes] = await Promise.all([
+      squareGet(accessToken, `/v2/cards?customer_id=${c.id}&include_disabled=true`),
+      squarePost(accessToken, '/v2/subscriptions/search', { query: { filter: { customer_ids: [c.id] } } }),
+    ]);
+
+    // Payments — last 90 days, filter by customer_id locally (Square lacks the filter)
+    const beginTime = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    let allPayments = [];
+    let cursor = null;
+    let pages = 0;
+    while (pages < 5) {
+      const u = new URLSearchParams({ location_id: profile.location_id, begin_time: beginTime, limit: '100', sort_order: 'DESC' });
+      if (cursor) u.set('cursor', cursor);
+      const pr = await squareGet(accessToken, `/v2/payments?${u}`);
+      if (pr.status !== 200) break;
+      allPayments = allPayments.concat(pr.body.payments || []);
+      cursor = pr.body.cursor;
+      pages++;
+      if (!cursor) break;
+    }
+    const myPayments = allPayments.filter(p => p.customer_id === c.id);
+
+    // Look up any subscription links we gave out that might relate (can't link to customer directly,
+    // but show the last 10 in case one of them is the one they clicked)
+    const recentLinks = dbAll(
+      `SELECT link_id, link_url, plan_name, variation_name, amount, currency, recipient_note, created_at
+       FROM subscription_link_logs WHERE profile_id = ? ORDER BY created_at DESC LIMIT 20`,
+      [profile.id]
+    );
+
+    out.matched.push({
+      customer: {
+        id: c.id,
+        name: [c.given_name, c.family_name].filter(Boolean).join(' '),
+        email: c.email_address || null,
+        phone: c.phone_number || null,
+        company: c.company_name || null,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        note: c.note || null,
+        address: c.address || null,
+      },
+      cards: (cardsRes.status === 200 ? (cardsRes.body.cards || []) : []).map(k => ({
+        id: k.id, brand: k.card_brand, last4: k.last_4, expMonth: k.exp_month, expYear: k.exp_year,
+        enabled: k.enabled, cardType: k.card_type, prepaidType: k.prepaid_type,
+        cardholderName: k.cardholder_name, fingerprint: k.fingerprint,
+        createdAt: k.created_at, version: k.version,
+      })),
+      subscriptions: (subsRes.status === 200 ? (subsRes.body.subscriptions || []) : []).map(s => ({
+        id: s.id, status: s.status, planVariationId: s.plan_variation_id,
+        startDate: s.start_date, canceledDate: s.canceled_date, chargedThroughDate: s.charged_through_date,
+        cardId: s.card_id, priceOverride: s.price_override_money,
+        actions: s.actions, timeline: s.timeline,
+      })),
+      payments: myPayments.map(p => ({
+        id: p.id, status: p.status, createdAt: p.created_at, updatedAt: p.updated_at,
+        amount: p.amount_money, approvedAmount: p.approved_money,
+        subscriptionId: p.subscription_id, orderId: p.order_id,
+        squareProduct: p.application_details?.square_product,
+        entryMethod: p.card_details?.entry_method,
+        cvvStatus: p.card_details?.cvv_status, avsStatus: p.card_details?.avs_status,
+        card: p.card_details?.card ? { brand: p.card_details.card.card_brand, last4: p.card_details.card.last_4, bin: p.card_details.card.bin } : null,
+        declineCode: p.card_details?.errors?.[0]?.code || null,
+        declineDetail: p.card_details?.errors?.[0]?.detail || null,
+        declineCategory: p.card_details?.errors?.[0]?.category || null,
+        riskLevel: p.risk_evaluation?.risk_level || null,
+      })),
+      recentSubscriptionLinks: recentLinks, // so user can see if one of our links matches
+      paymentsScanned: allPayments.length,
+      paymentsPeriod: '90 days',
+    });
+  }
+
+  res.json(out);
 });
 
 // Payment Link

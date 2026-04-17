@@ -810,10 +810,11 @@
   </div>
 
   <div class="panel" id="panel-customers">
-  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-    <input type="text" id="cust-search" placeholder="Search name, email, phone..." style="flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" oninput="debouncedCustomerSearch()" />
+  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <input type="text" id="cust-search" placeholder="Search name, email, phone..." style="flex:1;min-width:200px;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" oninput="debouncedCustomerSearch()" />
     <button onclick="toggleCustAddForm()" style="background:#059669;color:white;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>
     <button onclick="loadCustomers()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">🔄</button>
+    <button onclick="openCustomerDiagSearch()" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">🔍 Диагностика</button>
   </div>
   <!-- Add Customer Form -->
   <div id="cust-add-form" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px;margin-bottom:12px;">
@@ -864,6 +865,21 @@
   <div id="cust-detail" style="display:none;margin-top:16px;border-top:2px solid #e5e7eb;padding-top:16px">
     <button onclick="closeCustomerDetail()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;margin-bottom:10px">← Back to list</button>
     <div id="cust-detail-content"></div>
+  </div>
+
+  <!-- Customer Diagnostic Modal -->
+  <div id="cust-diag-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px;">
+    <div style="background:white;border-radius:12px;max-width:900px;margin:0 auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;font-size:17px;color:#111827;">🔍 Диагностика клиента</h3>
+        <button onclick="closeCustomerDiag()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">✕</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input type="text" id="cust-diag-query" placeholder="Email, имя, телефон или Customer ID" style="flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none" onkeydown="if(event.key==='Enter')runCustomerDiag()" />
+        <button onclick="runCustomerDiag()" style="background:#006AFF;color:white;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer">Искать</button>
+      </div>
+      <div id="cust-diag-result" style="font-size:13px;"></div>
+    </div>
   </div>
 </div><div class="panel" id="panel-report">
     <div class="report-toolbar">
@@ -4145,14 +4161,135 @@ async function fetchCustomers(append) {
         '<div style="font-size:10px;color:#9ca3af">' + new Date(c.createdAt).toLocaleDateString('ru-RU') + '</div>' +
         '<div style="font-size:10px;color:#9ca3af;margin-top:2px">' + c.source + '</div></div></div>' +
         (segs.length ? '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;padding:2px 7px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
-        '<div style="margin-top:6px;display:flex;gap:4px;">' +
+        '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">' +
         '<button onclick="event.stopPropagation();openAttachCard(\'' + c.id + '\',\'' + name.replace(/'/g, "\\'") + '\')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">💳 Attach Card</button>' +
+        '<button onclick="event.stopPropagation();openCustomerDiag(\'' + c.id + '\')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">🔍 Диагностика</button>' +
         '</div>' +
         '</div>';
     }).join('');
     const el = document.getElementById('customers-list');
     if (append) el.innerHTML += html; else el.innerHTML = html;
   } catch (e) { document.getElementById('customers-list').innerHTML = '<p style="color:#ef4444;font-size:13px">Error: ' + e.message + '</p>'; }
+}
+
+// ── Customer Diagnostic ─────────────────────────────────────────────
+function openCustomerDiagSearch() {
+  document.getElementById('cust-diag-modal').style.display = 'block';
+  document.getElementById('cust-diag-query').value = '';
+  document.getElementById('cust-diag-result').innerHTML = '<p style="color:#6b7280;font-size:13px;padding:20px 0;text-align:center">Введи email, имя, телефон или Customer ID и нажми Искать</p>';
+  setTimeout(() => document.getElementById('cust-diag-query').focus(), 50);
+}
+
+function openCustomerDiag(customerId) {
+  document.getElementById('cust-diag-modal').style.display = 'block';
+  document.getElementById('cust-diag-query').value = customerId;
+  runCustomerDiag();
+}
+
+function closeCustomerDiag() {
+  document.getElementById('cust-diag-modal').style.display = 'none';
+}
+
+async function runCustomerDiag() {
+  const q = document.getElementById('cust-diag-query').value.trim();
+  if (!q) return;
+  const activeId = profilesData.activeId;
+  const resultEl = document.getElementById('cust-diag-result');
+  resultEl.innerHTML = '<p style="color:#6b7280;font-size:13px;padding:20px 0;text-align:center">Ищу...</p>';
+  try {
+    const data = await fetch(`/api/profiles/${activeId}/customer-diag?q=${encodeURIComponent(q)}`).then(r => r.json());
+    if (data.error) { resultEl.innerHTML = `<p style="color:#ef4444">⚠️ ${data.error}</p>`; return; }
+    if (!data.matched || !data.matched.length) {
+      const msg = data.message || 'Ничего не найдено';
+      resultEl.innerHTML = `<p style="color:#6b7280;font-size:13px;padding:20px 0;text-align:center">🔎 ${msg}</p>`;
+      return;
+    }
+    resultEl.innerHTML = data.matched.map(renderDiagMatch).join('<hr style="margin:16px 0;border:none;border-top:1px solid #e5e7eb;">');
+  } catch (e) {
+    resultEl.innerHTML = `<p style="color:#ef4444">Error: ${e.message}</p>`;
+  }
+}
+
+function renderDiagMatch(m) {
+  const c = m.customer;
+  const fmt = (amt) => amt != null ? '$' + (Number(amt) / 100).toFixed(2) : '—';
+  const dt = (s) => s ? new Date(s).toLocaleString('ru-RU') : '—';
+  const mask = (s) => s ? s.slice(0, 12) + '…' : '—';
+
+  const custBlock = `
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:12px;">
+      <div style="font-size:15px;font-weight:700;">${c.name || '—'}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+        <div>📧 ${c.email || '—'}</div>
+        <div>📞 ${c.phone || '—'}</div>
+        <div>🗓 Создан: ${dt(c.createdAt)}</div>
+        <div style="font-family:monospace;font-size:10px;">ID: ${c.id}</div>
+      </div>
+    </div>`;
+
+  const cardsBlock = m.cards.length ? `
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">💳 Карты on file (${m.cards.length})</div>
+      ${m.cards.map(k => `
+        <div style="border:1px solid ${k.enabled ? '#bbf7d0' : '#fecaca'};background:${k.enabled ? '#f0fdf4' : '#fef2f2'};border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:12px;">
+          <strong>${k.brand} ****${k.last4}</strong> · ${k.expMonth}/${k.expYear} · ${k.enabled ? '✅ enabled' : '❌ disabled'}
+          <div style="color:#6b7280;font-size:11px;margin-top:2px;">${k.cardholderName || '—'} · ${k.cardType || ''} ${k.prepaidType && k.prepaidType !== 'NOT_PREPAID' ? '· ⚠ ' + k.prepaidType : ''} · создана ${dt(k.createdAt)}</div>
+          <div style="color:#9ca3af;font-size:10px;font-family:monospace;">${k.id}</div>
+        </div>`).join('')}
+    </div>` : '<div style="padding:8px;background:#fef2f2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:12px;">💳 Карт на клиенте нет</div>';
+
+  const subsBlock = m.subscriptions.length ? `
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">🔄 Подписки (${m.subscriptions.length})</div>
+      ${m.subscriptions.map(s => `
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:12px;">
+          <strong style="color:${s.status === 'ACTIVE' ? '#059669' : s.status === 'CANCELED' ? '#6b7280' : '#f59e0b'}">${s.status}</strong> · since ${s.startDate || '—'}
+          ${s.chargedThroughDate ? ` · paid through ${s.chargedThroughDate}` : ''}
+          ${s.canceledDate ? ` · canceled ${s.canceledDate}` : ''}
+          <div style="color:#6b7280;font-size:11px;margin-top:2px;">Plan variation: ${mask(s.planVariationId)} · Card: ${mask(s.cardId)}</div>
+        </div>`).join('')}
+    </div>` : '<div style="padding:8px;background:#fef2f2;color:#991b1b;border-radius:6px;font-size:12px;margin-bottom:12px;">🔄 Подписок нет</div>';
+
+  const paymentsBlock = m.payments.length ? `
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">💰 Платежи (${m.payments.length}) <span style="font-weight:400;text-transform:none;color:#9ca3af;">· искали по ${m.paymentsScanned} записям за ${m.paymentsPeriod}</span></div>
+      ${m.payments.map(p => {
+        const col = p.status === 'COMPLETED' ? '#059669' : p.status === 'FAILED' ? '#dc2626' : p.status === 'APPROVED' ? '#f59e0b' : '#6b7280';
+        return `
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:12px;">
+          <div style="display:flex;justify-content:space-between;">
+            <strong>${fmt(p.amount?.amount)} <span style="color:${col};font-size:11px;font-weight:700;">${p.status}</span></strong>
+            <span style="color:#6b7280;">${dt(p.createdAt)}</span>
+          </div>
+          ${p.declineCode ? `<div style="color:#dc2626;margin-top:4px;">❌ <strong>${p.declineCode}</strong> · ${p.declineDetail || ''} <span style="opacity:0.6">(${p.declineCategory || ''})</span></div>` : ''}
+          <div style="color:#6b7280;font-size:11px;margin-top:2px;">
+            ${p.card ? `${p.card.brand} ****${p.card.last4}${p.card.bin ? ' · BIN ' + p.card.bin : ''} · ` : ''}
+            ${p.entryMethod || ''} ${p.cvvStatus ? '· CVV ' + p.cvvStatus : ''} ${p.avsStatus ? '· AVS ' + p.avsStatus : ''}
+            ${p.squareProduct ? ' · ' + p.squareProduct : ''}
+            ${p.subscriptionId ? ' · 🔄 sub ' + mask(p.subscriptionId) : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : `<div style="padding:10px;background:#fef2f2;color:#991b1b;border-radius:8px;font-size:12px;margin-bottom:12px;">
+      💰 <strong>НИ ОДНОГО платежа за 90 дней</strong> (просмотрено ${m.paymentsScanned} записей).<br>
+      Это значит — Square не создавал Payment record для этого клиента. Возможные причины:<br>
+      • Чекаут был заполнен, но оплата не была дотянута до Square gateway<br>
+      • Hard decline на уровне card verification (карта в blacklist, fraud pre-check)<br>
+      • Клиент закрыл страницу до финального Pay
+    </div>`;
+
+  const linksBlock = m.recentSubscriptionLinks?.length ? `
+    <div style="margin-bottom:8px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">🔗 Последние подписочные ссылки (профиля)</div>
+      ${m.recentSubscriptionLinks.slice(0, 5).map(l => `
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px;margin-bottom:4px;font-size:11px;color:#6b7280;">
+          ${l.plan_name || '?'} — ${l.variation_name || '?'} · ${fmt(l.amount)} ${l.currency} · ${dt(l.created_at)}
+          ${l.recipient_note ? `<br><span style="color:#374151;">📝 ${l.recipient_note}</span>` : ''}
+          <br><a href="${l.link_url}" target="_blank" style="color:#2563eb;">${l.link_id}</a>
+        </div>`).join('')}
+    </div>` : '';
+
+  return custBlock + cardsBlock + subsBlock + paymentsBlock + linksBlock;
 }
 
 async function openCustomer(customerId) {
