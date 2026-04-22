@@ -3144,35 +3144,57 @@ app.get('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
   });
 });
 
-// Update customer (partial update — only send fields present in body)
+// Update customer (partial update — only send fields with actual values).
+// Square's UpdateCustomer returns 'At least one field must be set' when all
+// fields are empty, so we skip empty strings instead of sending them blindly.
+// If the caller really wants to CLEAR a field, they pass { clearX: true }.
 app.put('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
   const b = req.body || {};
 
-  // Build update payload — only include keys that were passed (allows clearing via empty string)
   const customer = {};
-  if ('givenName'   in b) customer.given_name   = (b.givenName   || '').trim();
-  if ('familyName'  in b) customer.family_name  = (b.familyName  || '').trim();
-  if ('email'       in b) customer.email_address = (b.email      || '').trim();
-  if ('phone'       in b) customer.phone_number = (b.phone       || '').trim();
-  if ('companyName' in b) customer.company_name = (b.companyName || '').trim();
-  if ('nickname'    in b) customer.nickname     = (b.nickname    || '').trim();
-  if ('note'        in b) customer.note         = b.note || '';
-  if ('birthday'    in b) customer.birthday     = (b.birthday    || '').trim();
-  if ('referenceId' in b) customer.reference_id = (b.referenceId || '').trim();
+  const put = (key, val, squareKey) => {
+    if (typeof val === 'string' && val.trim()) customer[squareKey] = val.trim();
+  };
+  put('givenName',   b.givenName,   'given_name');
+  put('familyName',  b.familyName,  'family_name');
+  put('email',       b.email,       'email_address');
+  put('phone',       b.phone,       'phone_number');
+  put('companyName', b.companyName, 'company_name');
+  put('nickname',    b.nickname,    'nickname');
+  put('birthday',    b.birthday,    'birthday');
+  put('referenceId', b.referenceId, 'reference_id');
+  // Note: allow empty string to clear it, because it's internal
+  if (typeof b.note === 'string') customer.note = b.note;
 
-  // Address — if any address field is present, send the whole address object
-  const addrTouched = ['addressLine1','addressLine2','city','stateCode','postalCode','country'].some(k => k in b);
-  if (addrTouched) {
-    customer.address = {
-      address_line_1: (b.addressLine1 || '').trim(),
-      address_line_2: (b.addressLine2 || '').trim() || undefined,
-      locality: (b.city || '').trim(),
-      administrative_district_level_1: (b.stateCode || '').trim().toUpperCase(),
-      postal_code: (b.postalCode || '').trim(),
-      country: (b.country || 'US').trim().toUpperCase(),
-    };
+  // Explicit clear flags for individual string fields (opt-in)
+  if (b.clearGivenName)   customer.given_name    = '';
+  if (b.clearFamilyName)  customer.family_name   = '';
+  if (b.clearEmail)       customer.email_address = '';
+  if (b.clearPhone)       customer.phone_number  = '';
+  if (b.clearCompanyName) customer.company_name  = '';
+  if (b.clearNickname)    customer.nickname      = '';
+  if (b.clearBirthday)    customer.birthday      = '';
+
+  // Address — only include fields that have non-empty values. If none filled,
+  // skip the address object entirely (caller can pass clearAddress:true to wipe).
+  const addr = {};
+  if (b.addressLine1 && b.addressLine1.trim()) addr.address_line_1 = b.addressLine1.trim();
+  if (b.addressLine2 && b.addressLine2.trim()) addr.address_line_2 = b.addressLine2.trim();
+  if (b.city         && b.city.trim())         addr.locality       = b.city.trim();
+  if (b.stateCode    && b.stateCode.trim())    addr.administrative_district_level_1 = b.stateCode.trim().toUpperCase();
+  if (b.postalCode   && b.postalCode.trim())   addr.postal_code    = b.postalCode.trim();
+  if (b.country      && b.country.trim())      addr.country        = b.country.trim().toUpperCase();
+  if (Object.keys(addr).length > 0) {
+    // When address is present, country defaults to US to avoid a Square validation bump
+    if (!addr.country) addr.country = 'US';
+    customer.address = addr;
+  }
+  if (b.clearAddress) customer.address = null;
+
+  if (Object.keys(customer).length === 0) {
+    return res.status(400).json({ error: 'Нет данных для обновления — заполни хотя бы одно поле.' });
   }
 
   const r = await safeSquareCall(profile, (token) => squareRequest('PUT', token, `/v2/customers/${req.params.cid}`, { customer }));
