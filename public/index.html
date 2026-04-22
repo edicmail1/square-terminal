@@ -3844,15 +3844,44 @@ async function resumeSubscription(id) {
 }
 
 async function cancelSubscription(id) {
-  if (!confirm('Отменить подписку?\n\n⚠️ Square отменяет в конце текущего билинг-периода (клиент уже заплатил за этот период). Если нужно отменить РАНЬШЕ — нажми ✏️ Edit и поставь нужную дату (можно сегодня).')) return;
+  if (!confirm('Отменить подписку НЕМЕДЛЕННО?\n\nЭто необратимо. Дальнейшие списания прекратятся сразу.')) return;
+  const activeId = profilesData.activeId;
   try {
-    const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/cancel`, { method: 'POST', credentials: 'include' });
-    const data = await r.json();
+    // Try cancelling today first (immediate). Square may require a future date —
+    // if so, fall back to the earliest date it accepts (tomorrow).
+    const today    = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    let r = await fetch(`/api/profiles/${activeId}/subscriptions/${id}/schedule-action`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'CANCEL', effectiveDate: today }),
+    });
+    let data = await r.json();
+
+    // If Square insists on a future date, try tomorrow
+    if (data.error && /future|effective_date|past/i.test(data.error)) {
+      r = await fetch(`/api/profiles/${activeId}/subscriptions/${id}/schedule-action`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'CANCEL', effectiveDate: tomorrow }),
+      });
+      data = await r.json();
+      if (!data.error) {
+        alert(`🔴 Отмена на ${tomorrow} (Square не даёт отменить сегодняшней датой). Подписка отработает сегодня последний раз.`);
+        loadSubscriptionsList();
+        return;
+      }
+    }
+
     if (data.error) { alert('❌ ' + data.error); return; }
-    const cancelAction = (data.subscription?.actions || []).find(a => a.type === 'CANCEL');
-    if (cancelAction?.effective_date) {
-      alert(`🔴 Отмена запланирована на ${cancelAction.effective_date}.\n\nПодписка работает до этой даты, потом перестаёт.\nОтменить РАНЬШЕ — ✏️ Edit → «Дата окончания» = сегодня/любая дата.\nПередумал — ✏️ Edit → «Снять» у оранжевого чипа.`);
-    } else if (data.subscription?.status === 'CANCELED' || data.subscription?.status === 'DEACTIVATED') {
+
+    const cancelAction = data.action || (data.subscription?.actions || []).find(a => a.type === 'CANCEL');
+    if (cancelAction?.effective_date && cancelAction.effective_date === today) {
+      alert('🔴 Подписка отменена.');
+    } else if (cancelAction?.effective_date) {
+      alert(`🔴 Отмена на ${cancelAction.effective_date}.`);
+    } else {
       alert('🔴 Подписка отменена.');
     }
     loadSubscriptionsList();
