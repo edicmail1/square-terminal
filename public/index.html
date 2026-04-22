@@ -1564,6 +1564,9 @@ function renderProfileList() {
     elBlocked.innerHTML = '';
     return;
   }
+  // Reset blocked list — otherwise cards accumulate (same-ID dupes) on re-renders.
+  // loadMerchantInfo will re-populate it below for profiles that can't process payments.
+  elBlocked.innerHTML = '<p style="color:#6b7280;font-size:13px;">No blocked businesses</p>';
   // Initially render all in active — loadMerchantInfo will re-sort after loading
   el.innerHTML = profilesData.profiles.map(p => `
     <div class="profile-card ${p.active ? 'is-active' : ''}" id="card-${p.id}">
