@@ -2190,8 +2190,17 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
     const totalAmount = totalPeriods && pricePerCharge ? (totalPeriods * parseFloat(pricePerCharge)).toFixed(2) : null;
     const chargedAmount = pricePerCharge ? (chargesDone * parseFloat(pricePerCharge)).toFixed(2) : null;
 
+    // Effective status — if all billed periods are consumed, treat as COMPLETED
+    // (Square may still report ACTIVE until it tries the next billing and finds
+    // there's nothing to bill, at which point it auto-DEACTIVATES)
+    let effectiveStatus = s.status;
+    const isFinished = totalPeriods && chargesDone >= totalPeriods;
+    if (isFinished && s.status === 'ACTIVE') effectiveStatus = 'COMPLETED';
+    if (s.status === 'DEACTIVATED') effectiveStatus = isFinished ? 'COMPLETED' : 'DEACTIVATED';
+
     return {
-      id: s.id, status: s.status, customerId: s.customer_id, cardId: s.card_id,
+      id: s.id, status: s.status, effectiveStatus,
+      customerId: s.customer_id, cardId: s.card_id,
       customerName: customerLookup[s.customer_id]?.name || '',
       customerEmail: customerLookup[s.customer_id]?.email || '',
       planVariationId: s.plan_variation_id, startDate: s.start_date,
@@ -2210,6 +2219,7 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       chargesDone,
       chargedAmount,
       totalAmount,
+      isFinished: !!isFinished,
     };
   });
   res.json({ subscriptions: subs });

@@ -3758,14 +3758,16 @@ async function loadSubscriptionsList() {
     if (data.error) { list.innerHTML = `<span style="color:#ef4444">${data.error}</span>`; return; }
     const subs = data.subscriptions || [];
     if (!subs.length) { list.innerHTML = '<span>No subscriptions yet.</span>'; return; }
-    const statusColors = { ACTIVE: '#059669', PENDING: '#2563eb', PAUSED: '#f59e0b', CANCELED: '#ef4444', DEACTIVATED: '#6b7280' };
+    const statusColors = { ACTIVE: '#059669', PENDING: '#2563eb', PAUSED: '#f59e0b', CANCELED: '#ef4444', DEACTIVATED: '#6b7280', COMPLETED: '#6b7280' };
     list.innerHTML = subs.map(s => {
-      const color = statusColors[s.status] || '#6b7280';
+      const effStatus = s.effectiveStatus || s.status;
+      const color = statusColors[effStatus] || '#6b7280';
+      const isLive = ['ACTIVE','PAUSED','PENDING'].includes(s.status) && !s.isFinished;
       const actions = [];
-      if (['ACTIVE','PAUSED','PENDING'].includes(s.status)) actions.push(`<button onclick='openEditSubscription(${JSON.stringify(s).replace(/'/g, "&apos;")})' style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">✏️ Edit</button>`);
-      if (s.status === 'ACTIVE') actions.push(`<button onclick="pauseSubscription('${s.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Pause</button>`);
+      if (isLive) actions.push(`<button onclick='openEditSubscription(${JSON.stringify(s).replace(/'/g, "&apos;")})' style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">✏️ Edit</button>`);
+      if (s.status === 'ACTIVE' && !s.isFinished) actions.push(`<button onclick="pauseSubscription('${s.id}')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Pause</button>`);
       if (s.status === 'PAUSED') actions.push(`<button onclick="resumeSubscription('${s.id}')" style="background:#ecfdf5;color:#059669;border:1px solid #bbf7d0;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Resume</button>`);
-      if (['ACTIVE','PAUSED','PENDING'].includes(s.status)) actions.push(`<button onclick="cancelSubscription('${s.id}')" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Cancel</button>`);
+      if (isLive) actions.push(`<button onclick="cancelSubscription('${s.id}')" style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">Cancel</button>`);
       // Progress info
       const price = s.pricePerCharge ? `$${s.pricePerCharge}` : '—';
       const progressText = s.periods
@@ -3781,7 +3783,7 @@ async function loadSubscriptionsList() {
           <div style="flex:1;">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
               <span style="font-weight:600;">${s.planName || 'Subscription'}</span>
-              <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;">${s.status}</span>
+              <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;">${effStatus === 'COMPLETED' ? '✅ COMPLETED' : effStatus}</span>
               ${s.pricePerCharge ? `<span style="font-size:12px;font-weight:700;color:#111827;">$${s.pricePerCharge}/${(s.cadence || 'period').toLowerCase().replace(/_/g, ' ')}</span>` : ''}
             </div>
             <div style="font-size:11px;color:#6b7280;margin-top:3px;">
