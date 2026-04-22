@@ -1665,8 +1665,18 @@ async function loadMerchantInfo(profileId) {
       const card = document.getElementById(`card-${profileId}`);
       const blockedList = document.getElementById('profile-list-blocked');
       if (card && blockedList) {
-        blockedList.innerHTML = blockedList.innerHTML.includes('No blocked') ? '' : blockedList.innerHTML;
-        blockedList.appendChild(card);
+        // Remove the "No blocked businesses" placeholder if present — but DO NOT
+        // reassign innerHTML to itself: that re-parses and clones all existing
+        // children, and `card` (already a DOM ref) then gets appended as a
+        // detached duplicate (root cause of dupes in ❌ Blocked).
+        const ph = blockedList.querySelector('p');
+        if (ph && /No blocked/i.test(ph.textContent)) ph.remove();
+        // Defensive dedup: if for some reason a card with this id is already
+        // inside blocked (stale from a previous render), drop it before moving.
+        blockedList.querySelectorAll(`#card-${CSS.escape(profileId)}`).forEach(n => {
+          if (n !== card) n.remove();
+        });
+        blockedList.appendChild(card); // moves if already attached elsewhere
       }
     }
 
