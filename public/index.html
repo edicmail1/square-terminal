@@ -984,6 +984,52 @@
   </div>
 
   <!-- Customer Diagnostic Modal -->
+  <!-- Edit Customer Modal -->
+  <div id="edit-cust-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px;">
+    <div style="background:white;border-radius:12px;max-width:600px;margin:0 auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;font-size:16px;color:#111827;">✏️ Редактировать клиента</h3>
+        <button onclick="closeEditCustomer()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">✕</button>
+      </div>
+      <input type="hidden" id="ec-id" />
+      <div id="ec-loading" style="padding:20px;color:#6b7280;font-size:13px;text-align:center;">Загружаю клиента...</div>
+      <div id="ec-form" style="display:none;">
+        <div class="field" style="margin-bottom:8px;">
+          <label style="font-size:11px;">Quick Paste <span style="color:#9ca3af;font-weight:400;">(перезапишет все поля)</span></label>
+          <input type="text" id="ec-quick" placeholder="John Smith 123 Main St Herndon VA 20170 john@email.com 212-555-1234" oninput="ecParseLine(this.value)" />
+        </div>
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">First Name</label><input type="text" id="ec-first" /></div>
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Last Name</label><input type="text" id="ec-last" /></div>
+        </div>
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Email</label><input type="email" id="ec-email" /></div>
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Phone</label><input type="text" id="ec-phone" /></div>
+        </div>
+        <div class="field" style="margin-bottom:6px;"><label style="font-size:11px;">Address Line 1</label><input type="text" id="ec-addr1" /></div>
+        <div class="field" style="margin-bottom:6px;"><label style="font-size:11px;">Address Line 2 <span style="color:#9ca3af;font-weight:400;">(optional)</span></label><input type="text" id="ec-addr2" /></div>
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:2;margin-bottom:6px;"><label style="font-size:11px;">City</label><input type="text" id="ec-city" /></div>
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">State</label><input type="text" id="ec-state" maxlength="2" style="text-transform:uppercase;" /></div>
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">ZIP</label><input type="text" id="ec-zip" maxlength="10" /></div>
+        </div>
+        <div class="row" style="gap:6px;">
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Company <span style="color:#9ca3af;font-weight:400;">(optional)</span></label><input type="text" id="ec-company" /></div>
+          <div class="field" style="flex:1;margin-bottom:6px;"><label style="font-size:11px;">Nickname <span style="color:#9ca3af;font-weight:400;">(optional)</span></label><input type="text" id="ec-nickname" /></div>
+        </div>
+        <div class="field" style="margin-bottom:6px;">
+          <label style="font-size:11px;">Note <span style="color:#9ca3af;font-weight:400;">(internal, не видит клиент)</span></label>
+          <textarea id="ec-note" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;min-height:50px;resize:vertical;"></textarea>
+        </div>
+        <div id="ec-result" class="result" style="margin-top:8px;"></div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <button onclick="saveEditCustomer()" class="btn btn-primary" style="flex:1;">Сохранить</button>
+          <button onclick="closeEditCustomer()" class="btn btn-sm" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:8px 14px;">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="cust-diag-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px;">
     <div style="background:white;border-radius:12px;max-width:900px;margin:0 auto;padding:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
@@ -4465,12 +4511,20 @@ const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','
 function parseAddressLine(line) {
   const r = { first: '', last: '', email: '', phone: '', address: '', city: '', state: '', zip: '' };
   if (!line || !line.trim()) return r;
+  // Normalize newlines to spaces — allows multi-line paste
+  line = line.replace(/[\r\n]+/g, ' ');
   const emailMatch = line.match(/[\w.+-]+@[\w.-]+\.\w{2,}/);
   if (emailMatch) { r.email = emailMatch[0]; line = line.replace(r.email, ' '); }
   const phoneMatch = line.match(/\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
   if (phoneMatch) { r.phone = phoneMatch[0].trim(); line = line.replace(phoneMatch[0], ' '); }
-  const zipMatch = line.match(/\b(\d{5}(?:-\d{4})?)\b/);
-  if (zipMatch) { r.zip = zipMatch[1]; line = line.replace(zipMatch[0], ' '); }
+  // ZIP: take the LAST 5-digit number, not the first (street numbers like "12815" are also 5 digits).
+  const zipMatches = [...line.matchAll(/\b(\d{5}(?:-\d{4})?)\b/g)];
+  if (zipMatches.length > 0) {
+    const last = zipMatches[zipMatches.length - 1];
+    r.zip = last[1];
+    // Replace just the specific occurrence at its index
+    line = line.slice(0, last.index) + ' ' + line.slice(last.index + last[0].length);
+  }
   const tokens = line.trim().split(/[\s,]+/).filter(Boolean);
   let stateIdx = -1;
   for (let i = tokens.length - 1; i >= 0; i--) {
@@ -4952,14 +5006,111 @@ async function fetchCustomers(append) {
         '<div style="font-size:10px;color:#9ca3af;margin-top:2px">' + c.source + '</div></div></div>' +
         (segs.length ? '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">' + segs.map(s => '<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;padding:2px 7px;border-radius:10px">' + s + '</span>').join('') + '</div>' : '') +
         '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">' +
+        '<button onclick="event.stopPropagation();openEditCustomer(\'' + c.id + '\')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">✏️ Edit</button>' +
         '<button onclick="event.stopPropagation();openAttachCard(\'' + c.id + '\',\'' + name.replace(/'/g, "\\'") + '\')" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">💳 Attach Card</button>' +
         '<button onclick="event.stopPropagation();openCustomerDiag(\'' + c.id + '\')" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">🔍 Диагностика</button>' +
+        '<button onclick="event.stopPropagation();deleteCustomer(\'' + c.id + '\',\'' + name.replace(/'/g, "\\'") + '\')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;">🗑</button>' +
         '</div>' +
         '</div>';
     }).join('');
     const el = document.getElementById('customers-list');
     if (append) el.innerHTML += html; else el.innerHTML = html;
   } catch (e) { document.getElementById('customers-list').innerHTML = '<p style="color:#ef4444;font-size:13px">Error: ' + e.message + '</p>'; }
+}
+
+// ── Edit Customer ─────────────────────────────────────────────────
+async function openEditCustomer(customerId) {
+  document.getElementById('edit-cust-modal').style.display = 'block';
+  document.getElementById('ec-id').value = customerId;
+  document.getElementById('ec-loading').style.display = 'block';
+  document.getElementById('ec-form').style.display = 'none';
+  document.getElementById('ec-result').style.display = 'none';
+  document.getElementById('ec-result').innerHTML = '';
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers/${customerId}`, { credentials: 'include' });
+    if (!r.headers.get('content-type')?.includes('json')) { alert('Server error'); closeEditCustomer(); return; }
+    const c = await r.json();
+    if (c.error) { alert('❌ ' + c.error); closeEditCustomer(); return; }
+    document.getElementById('ec-quick').value = '';
+    document.getElementById('ec-first').value = c.givenName || '';
+    document.getElementById('ec-last').value = c.familyName || '';
+    document.getElementById('ec-email').value = c.email || '';
+    document.getElementById('ec-phone').value = c.phone || '';
+    document.getElementById('ec-addr1').value = c.addressLine1 || '';
+    document.getElementById('ec-addr2').value = c.addressLine2 || '';
+    document.getElementById('ec-city').value = c.city || '';
+    document.getElementById('ec-state').value = c.stateCode || '';
+    document.getElementById('ec-zip').value = c.postalCode || '';
+    document.getElementById('ec-company').value = c.companyName || '';
+    document.getElementById('ec-nickname').value = c.nickname || '';
+    document.getElementById('ec-note').value = c.note || '';
+    document.getElementById('ec-loading').style.display = 'none';
+    document.getElementById('ec-form').style.display = 'block';
+  } catch (e) {
+    alert('Error: ' + e.message);
+    closeEditCustomer();
+  }
+}
+
+function closeEditCustomer() {
+  document.getElementById('edit-cust-modal').style.display = 'none';
+}
+
+function ecParseLine(line) {
+  const p = parseAddressLine(line);
+  if (p.first) document.getElementById('ec-first').value = p.first;
+  if (p.last) document.getElementById('ec-last').value = p.last;
+  if (p.email) document.getElementById('ec-email').value = p.email;
+  if (p.phone) document.getElementById('ec-phone').value = p.phone;
+  if (p.address) document.getElementById('ec-addr1').value = p.address;
+  if (p.city) document.getElementById('ec-city').value = p.city;
+  if (p.state) document.getElementById('ec-state').value = p.state;
+  if (p.zip) document.getElementById('ec-zip').value = p.zip;
+}
+
+async function saveEditCustomer() {
+  const id = document.getElementById('ec-id').value;
+  const result = document.getElementById('ec-result');
+  const body = {
+    givenName:    document.getElementById('ec-first').value.trim(),
+    familyName:   document.getElementById('ec-last').value.trim(),
+    email:        document.getElementById('ec-email').value.trim(),
+    phone:        document.getElementById('ec-phone').value.trim(),
+    addressLine1: document.getElementById('ec-addr1').value.trim(),
+    addressLine2: document.getElementById('ec-addr2').value.trim(),
+    city:         document.getElementById('ec-city').value.trim(),
+    stateCode:    document.getElementById('ec-state').value.trim().toUpperCase(),
+    postalCode:   document.getElementById('ec-zip').value.trim(),
+    companyName:  document.getElementById('ec-company').value.trim(),
+    nickname:     document.getElementById('ec-nickname').value.trim(),
+    note:         document.getElementById('ec-note').value,
+  };
+  showResult(result, 'info', 'Сохраняю...');
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers/${id}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.error) { showResult(result, 'error', '❌ ' + data.error); return; }
+    showResult(result, 'success', '✅ Сохранено');
+    globalCustomersCache = null;
+    setTimeout(() => { closeEditCustomer(); loadCustomers(); }, 800);
+  } catch (e) { showResult(result, 'error', e.message); }
+}
+
+async function deleteCustomer(customerId, name) {
+  if (!confirm(`Удалить клиента "${name}"?\n\nЭто необратимо. Square удалит все данные клиента (но платежи останутся с customer_id=null).`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${profilesData.activeId}/customers/${customerId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    const data = await r.json();
+    if (data.error) { alert('❌ ' + data.error); return; }
+    globalCustomersCache = null;
+    loadCustomers();
+  } catch (e) { alert('Error: ' + e.message); }
 }
 
 // ── Customer Diagnostic ─────────────────────────────────────────────

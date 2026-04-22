@@ -3121,13 +3121,74 @@ app.get('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
   if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error' });
   const c = r.body.customer;
-  res.json({ id: c.id, givenName: c.given_name || '', familyName: c.family_name || '',
+  const a = c.address || {};
+  res.json({
+    id: c.id, givenName: c.given_name || '', familyName: c.family_name || '',
     email: c.email_address || '', phone: c.phone_number || '', createdAt: c.created_at,
     updatedAt: c.updated_at, source: c.creation_source || '', note: c.note || '',
     segmentIds: c.segment_ids || [],
-    address: c.address ? [c.address.address_line_1, c.address.locality, c.address.administrative_district_level_1].filter(Boolean).join(', ') : '',
-    birthday: c.birthday || '', referenceId: c.reference_id || '',
+    // Structured address for edit form
+    addressLine1: a.address_line_1 || '',
+    addressLine2: a.address_line_2 || '',
+    city: a.locality || '',
+    stateCode: a.administrative_district_level_1 || '',
+    postalCode: a.postal_code || '',
+    country: a.country || 'US',
+    // Legacy single-line for compatibility
+    address: (a.address_line_1 || a.locality) ? [a.address_line_1, a.locality, a.administrative_district_level_1].filter(Boolean).join(', ') : '',
+    birthday: c.birthday || '',
+    referenceId: c.reference_id || '',
+    companyName: c.company_name || '',
+    nickname: c.nickname || '',
+    version: c.version != null ? c.version : null,
   });
+});
+
+// Update customer (partial update — only send fields present in body)
+app.put('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  const b = req.body || {};
+
+  // Build update payload — only include keys that were passed (allows clearing via empty string)
+  const customer = {};
+  if ('givenName'   in b) customer.given_name   = (b.givenName   || '').trim();
+  if ('familyName'  in b) customer.family_name  = (b.familyName  || '').trim();
+  if ('email'       in b) customer.email_address = (b.email      || '').trim();
+  if ('phone'       in b) customer.phone_number = (b.phone       || '').trim();
+  if ('companyName' in b) customer.company_name = (b.companyName || '').trim();
+  if ('nickname'    in b) customer.nickname     = (b.nickname    || '').trim();
+  if ('note'        in b) customer.note         = b.note || '';
+  if ('birthday'    in b) customer.birthday     = (b.birthday    || '').trim();
+  if ('referenceId' in b) customer.reference_id = (b.referenceId || '').trim();
+
+  // Address — if any address field is present, send the whole address object
+  const addrTouched = ['addressLine1','addressLine2','city','stateCode','postalCode','country'].some(k => k in b);
+  if (addrTouched) {
+    customer.address = {
+      address_line_1: (b.addressLine1 || '').trim(),
+      address_line_2: (b.addressLine2 || '').trim() || undefined,
+      locality: (b.city || '').trim(),
+      administrative_district_level_1: (b.stateCode || '').trim().toUpperCase(),
+      postal_code: (b.postalCode || '').trim(),
+      country: (b.country || 'US').trim().toUpperCase(),
+    };
+  }
+
+  const r = await safeSquareCall(profile, (token) => squareRequest('PUT', token, `/v2/customers/${req.params.cid}`, { customer }));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Square error', debug: r.body });
+  res.json({ success: true, customer: r.body.customer });
+});
+
+// Delete customer
+app.delete('/api/profiles/:id/customers/:cid', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  const r = await safeSquareCall(profile, (token) => squareRequest('DELETE', token, `/v2/customers/${req.params.cid}`, null));
+  if (r.tokenExpired) return res.status(401).json({ error: r.body.errors[0].detail, tokenExpired: true });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to delete customer' });
+  res.json({ success: true });
 });
 
 // Customer segments
