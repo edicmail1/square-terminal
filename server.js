@@ -2038,7 +2038,7 @@ app.delete('/api/profiles/:id/plans/:planId', requireAuth, async (req, res) => {
 app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { customerId, planVariationId, cardId, startDate, priceOverride } = req.body;
+  const { customerId, planVariationId, cardId, startDate, priceOverride, periods } = req.body;
   if (!customerId || !planVariationId) return res.status(400).json({ error: 'customerId and planVariationId required' });
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
@@ -2048,6 +2048,13 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   const varData = varRes.body?.object?.subscription_plan_variation_data;
   const phase = varData?.phases?.[0];
   const isRelative = phase?.pricing?.type === 'RELATIVE';
+  const planPeriods = phase?.periods || null;
+
+  // Caller-supplied periods only used when plan itself is flexible (no periods baked in)
+  const resolvedPeriods = (periods !== undefined && periods !== null && periods !== '')
+    ? (parseInt(periods) > 0 ? parseInt(periods) : null)
+    : null;
+  const periodsToApply = planPeriods ? null /* plan already has fixed duration */ : resolvedPeriods;
 
   const body = {
     idempotency_key: crypto.randomUUID(),
@@ -2078,17 +2085,22 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
           idempotency_key: crypto.randomUUID(),
         });
         if (orderRes.status === 200) {
-          body.phases = [{
+          const subPhase = {
             ordinal: 0,
             order_template_id: orderRes.body.order.id,
-          }];
+          };
+          if (periodsToApply) subPhase.periods = periodsToApply;
+          body.phases = [subPhase];
         }
       }
     }
+  } else if (periodsToApply) {
+    // STATIC plan without baked-in periods — override on the subscription
+    body.phases = [{ ordinal: 0, periods: periodsToApply }];
   }
 
   const r = await squarePost(accessToken, '/v2/subscriptions', body);
-  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription' });
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create subscription', debug: r.body });
   res.json({ subscription: r.body.subscription });
 });
 

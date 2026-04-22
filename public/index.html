@@ -749,8 +749,9 @@
           </select>
         </div>
         <div class="field" style="margin-bottom:6px;">
-          <label style="font-size:11px;">Number of charges <span style="color:#9ca3af;font-weight:400;">(leave empty = unlimited)</span></label>
-          <input type="number" id="plan-periods" placeholder="e.g. 5 = stop after 5 charges" min="1" max="999" />
+          <label style="font-size:11px;">Number of charges <span style="color:#059669;font-weight:400;">(recommended: leave empty — задашь при создании подписки)</span></label>
+          <input type="number" id="plan-periods" placeholder="Empty = flexible plan, set per-subscription" min="1" max="999" />
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">💡 Пустое поле = один план можно использовать для подписок разной длительности (3 дня, 6 дней, 10 дней)</div>
         </div>
         <div id="plan-result" class="result"></div>
         <div style="display:flex;gap:6px;">
@@ -780,7 +781,7 @@
         <div class="row" style="gap:6px;">
           <div class="field" style="flex:2;margin-bottom:6px;">
             <label style="font-size:11px;">Plan</label>
-            <select id="newsub-plan"></select>
+            <select id="newsub-plan" onchange="onNewSubPlanChange()"></select>
           </div>
           <div class="field" style="flex:1;margin-bottom:6px;">
             <label style="font-size:11px;">Card</label>
@@ -791,6 +792,10 @@
           <div class="field" style="flex:1;margin-bottom:6px;">
             <label style="font-size:11px;">Start Date</label>
             <input type="date" id="newsub-start" />
+          </div>
+          <div class="field" style="flex:1;margin-bottom:6px;">
+            <label style="font-size:11px;">Duration (charges) <span id="newsub-duration-hint" style="color:#6b7280;font-weight:400;">— set by plan</span></label>
+            <input type="number" id="newsub-periods" placeholder="e.g. 6" min="1" max="999" />
           </div>
           <div class="field" style="flex:1;margin-bottom:6px;">
             <label style="font-size:11px;">Price Override (optional)</label>
@@ -3594,10 +3599,39 @@ async function loadPlans() {
       </div>`;
     }).join('');
     // Populate plan select for new subscription
-    planSelect.innerHTML = plans.flatMap(p => (p.variations || []).map(v =>
-      `<option value="${v.id}">${p.name} — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')}</option>`
-    )).join('');
+    planSelect.innerHTML = plans.flatMap(p => (p.variations || []).map(v => {
+      const dur = v.periods ? `×${v.periods}` : '∞';
+      return `<option value="${v.id}" data-periods="${v.periods || ''}" data-cadence="${v.cadence || ''}">${p.name} — $${v.amount}/${v.cadence.toLowerCase().replace(/_/g, ' ')} ${dur}</option>`;
+    })).join('');
+    onNewSubPlanChange();
   } catch (e) { list.innerHTML = `<span style="color:#ef4444">${e.message}</span>`; }
+}
+
+// When user picks a plan in New Subscription, lock Duration field if plan has periods,
+// or unlock it if the plan is flexible (no periods).
+function onNewSubPlanChange() {
+  const sel = document.getElementById('newsub-plan');
+  const input = document.getElementById('newsub-periods');
+  const hint = document.getElementById('newsub-duration-hint');
+  if (!sel || !input || !hint) return;
+  const opt = sel.options[sel.selectedIndex];
+  const planPeriods = opt ? opt.dataset.periods : '';
+  const cadence = opt ? (opt.dataset.cadence || '').toLowerCase().replace(/_/g, ' ') : 'charges';
+  if (planPeriods) {
+    input.value = planPeriods;
+    input.disabled = true;
+    input.style.background = '#f9fafb';
+    input.style.color = '#6b7280';
+    hint.textContent = `— fixed by plan (${planPeriods})`;
+    hint.style.color = '#6b7280';
+  } else {
+    input.disabled = false;
+    input.style.background = '';
+    input.style.color = '';
+    input.value = '';
+    hint.textContent = `— plan is flexible, set length (${cadence})`;
+    hint.style.color = '#059669';
+  }
 }
 
 // ── Edit Plan ──────────────────────────────────────────────────────────
@@ -3726,8 +3760,16 @@ async function createSubscription() {
   const cardId = document.getElementById('newsub-card').value;
   const startDate = document.getElementById('newsub-start').value;
   const priceOverride = document.getElementById('newsub-price').value;
+  const periodsInput = document.getElementById('newsub-periods');
+  const periods = periodsInput && !periodsInput.disabled ? periodsInput.value.trim() : '';
   if (!customerId) { showResult(result, 'error', 'Select a customer'); return; }
   if (!planVariationId) { showResult(result, 'error', 'Select a plan'); return; }
+  // For flexible plans (no periods baked in), require explicit duration
+  const opt = document.getElementById('newsub-plan').options[document.getElementById('newsub-plan').selectedIndex];
+  const planPeriods = opt ? opt.dataset.periods : '';
+  if (!planPeriods && !periods) {
+    if (!confirm('Duration не указан — подписка будет бесконечной (до ручной отмены). Продолжить?')) return;
+  }
   if (!cardId) {
     if (!confirm('No card selected. Square will send an invoice by email instead of auto-charging. Continue?')) return;
   }
@@ -3737,6 +3779,7 @@ async function createSubscription() {
     if (cardId) body.cardId = cardId;
     if (startDate) body.startDate = startDate;
     if (priceOverride) body.priceOverride = parseFloat(priceOverride);
+    if (periods && !planPeriods) body.periods = parseInt(periods);
     const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify(body),
