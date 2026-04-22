@@ -2104,6 +2104,94 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   res.json({ subscription: r.body.subscription });
 });
 
+// Extend an existing subscription — creates a NEW subscription that starts
+// the day after the current one's charged_through_date. Chains them logically
+// by writing parent/child IDs into customer_note of both.
+app.post('/api/profiles/:id/subscriptions/:subId/extend', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { periods } = req.body || {};
+  const n = parseInt(periods);
+  if (!n || n <= 0) return res.status(400).json({ error: 'periods must be a positive integer' });
+
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+
+  // Fetch the source subscription to copy customer, plan, card
+  const srcRes = await squareGet(accessToken, `/v2/subscriptions/${req.params.subId}`);
+  if (srcRes.status !== 200) return res.status(srcRes.status).json({ error: srcRes.body?.errors?.[0]?.detail || 'Source subscription not found' });
+  const src = srcRes.body.subscription;
+
+  // Start date: day after the source's charged_through_date; fallback to tomorrow
+  let startDate;
+  if (src.charged_through_date) {
+    const d = new Date(src.charged_through_date + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    startDate = d.toISOString().slice(0, 10);
+  } else {
+    const d = new Date(Date.now() + 86400000);
+    startDate = d.toISOString().slice(0, 10);
+  }
+
+  // Inspect plan to know pricing type
+  const varRes = await squareGet(accessToken, `/v2/catalog/object/${src.plan_variation_id}?include_related_objects=true`);
+  const varData = varRes.body?.object?.subscription_plan_variation_data;
+  const phase = varData?.phases?.[0];
+  const isRelative = phase?.pricing?.type === 'RELATIVE';
+
+  // Build new subscription body
+  const body = {
+    idempotency_key: crypto.randomUUID(),
+    location_id: profile.location_id,
+    customer_id: src.customer_id,
+    plan_variation_id: src.plan_variation_id,
+    start_date: startDate,
+  };
+  if (src.card_id) body.card_id = src.card_id;
+  if (src.price_override_money) body.price_override_money = src.price_override_money;
+  // Mark the new subscription as an extension in a note
+  body.customer_note = `[Extension of ${req.params.subId}]` + (src.customer_note ? ' ' + src.customer_note : '');
+
+  // For RELATIVE, we need a DRAFT order template on the new sub too
+  if (isRelative && varData?.subscription_plan_id) {
+    const planObj = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
+    const eligibleItemIds = planObj.body?.object?.subscription_plan_data?.eligible_item_ids || [];
+    if (eligibleItemIds.length > 0) {
+      const itemObj = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
+      const itemVarId = itemObj.body?.object?.item_data?.variations?.[0]?.id;
+      if (itemVarId) {
+        const orderRes = await squarePost(accessToken, '/v2/orders', {
+          order: {
+            location_id: profile.location_id,
+            state: 'DRAFT',
+            line_items: [{ quantity: '1', catalog_object_id: itemVarId }],
+          },
+          idempotency_key: crypto.randomUUID(),
+        });
+        if (orderRes.status === 200) {
+          body.phases = [{ ordinal: 0, order_template_id: orderRes.body.order.id, periods: n }];
+        }
+      }
+    }
+  } else {
+    body.phases = [{ ordinal: 0, periods: n }];
+  }
+
+  const r = await squarePost(accessToken, '/v2/subscriptions', body);
+  if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create extension', debug: r.body });
+
+  // Also mark the source subscription's customer_note with a pointer to the extension
+  try {
+    const newId = r.body.subscription.id;
+    const newNote = `[Extended by ${newId}]` + (src.customer_note ? ' ' + src.customer_note : '');
+    await squareRequest('PUT', accessToken, `/v2/subscriptions/${req.params.subId}`, {
+      subscription: { customer_note: newNote },
+    });
+  } catch (_) { /* non-fatal */ }
+
+  res.json({ success: true, extension: r.body.subscription, startDate, periods: n });
+});
+
 // List/search subscriptions
 app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
@@ -2198,7 +2286,9 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       if (chargesDone < 0) chargesDone = 0;
     }
     const pricePerCharge = s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : plan.amount;
-    const totalPeriods = plan.periods || null;
+    // Sub's own phase periods (set at subscription creation for flexible plans) override plan.periods
+    const subPhasePeriods = s.phases?.[0]?.periods || null;
+    const totalPeriods = subPhasePeriods || plan.periods || null;
     const totalAmount = totalPeriods && pricePerCharge ? (totalPeriods * parseFloat(pricePerCharge)).toFixed(2) : null;
     const chargedAmount = pricePerCharge ? (chargesDone * parseFloat(pricePerCharge)).toFixed(2) : null;
 
@@ -2220,7 +2310,7 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       canceledDate: s.canceled_date, createdAt: s.created_at,
       priceOverride: s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : null,
       priceOverrideRaw: s.price_override_money || null,
-      customerNote: s.invoice_request_method ? '' : (s.customer_note || ''),
+      customerNote: s.customer_note || '',
       actions: s.actions || [], // scheduled pause/cancel/resume
       // Plan info
       planName: plan.planName || '',
