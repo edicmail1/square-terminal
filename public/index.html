@@ -509,6 +509,12 @@
       <div class="field-error" id="err-l-location"></div>
     </div>
     <div class="field">
+      <label>Select from catalog <span style="color:#9ca3af;font-weight:400;font-size:11px;">— prefills Title + Amount, editable after</span></label>
+      <select id="link-catalog" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+        <option value="">— Select from catalog —</option>
+      </select>
+    </div>
+    <div class="field">
       <label>Amount <span class="req">*</span></label>
       <div class="amount-wrap">
         <span>$</span>
@@ -658,6 +664,12 @@
         </div>
       </div>
       <div style="font-size:13px;font-weight:600;color:#374151;margin:12px 0 6px;">Items</div>
+      <div class="field" style="margin-bottom:8px;">
+        <label style="font-size:12px;">Select from catalog <span style="color:#9ca3af;font-weight:400;font-size:11px;">— adds item row, editable after</span></label>
+        <select id="inv-catalog" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+          <option value="">— Select from catalog —</option>
+        </select>
+      </div>
       <div id="inv-items">
         <div class="inv-item-row" style="display:grid;grid-template-columns:1fr 60px 100px 30px;gap:6px;margin-bottom:6px;">
           <input type="text" placeholder="Item name" class="inv-item-name" />
@@ -733,6 +745,12 @@
       </div>
       <!-- New Plan Form -->
       <div id="plan-form" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;margin-bottom:8px;">
+        <div class="field" style="margin-bottom:6px;">
+          <label style="font-size:11px;">Select from catalog <span style="color:#9ca3af;font-weight:400;">— prefills Name + Amount</span></label>
+          <select id="plan-catalog" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+            <option value="">— Select from catalog —</option>
+          </select>
+        </div>
         <div class="row" style="gap:6px;">
           <div class="field" style="flex:2;margin-bottom:6px;">
             <label style="font-size:11px;">Plan Name</label>
@@ -1446,6 +1464,7 @@
 </div>
 
 <script src="mcc-codes.js"></script>
+<script src="item-catalog.js"></script>
 <script>
 let card;
 let appId, locId;
@@ -1883,6 +1902,7 @@ async function switchProfile(id) {
     document.getElementById('l-location').dataset.loaded = ''; // reset location cache
     globalCustomersCache = null; // reset customer cache on profile switch
     if (typeof invalidateProfileTZCache === 'function') invalidateProfileTZCache();
+    if (typeof invalidateProfileMccCache === 'function') invalidateProfileMccCache();
     // Re-init Square.js only if Manual Entry tab is currently open
     if (document.getElementById('panel-manual').classList.contains('active')) {
       await initSquare();
@@ -2441,12 +2461,12 @@ function switchTab(tab) {
   });
   if (tab === 'dashboard')     loadDashboard();
   if (tab === 'manual')        initSquare();
-  if (tab === 'link')          loadLinkLocations();
+  if (tab === 'link')          { loadLinkLocations(); populateItemCatalogSelect('link-catalog', 'catalogPickPaymentLink'); }
   if (tab === 'history')       loadHistory();
   if (tab === 'locations')     loadLocations();
   if (tab === 'payouts')       loadPayouts();
-  if (tab === 'invoices')      loadInvoices();
-  if (tab === 'subscriptions') loadSubscriptions();
+  if (tab === 'invoices')      { loadInvoices(); populateItemCatalogSelect('inv-catalog', 'catalogPickInvoice'); }
+  if (tab === 'subscriptions') { loadSubscriptions(); populateItemCatalogSelect('plan-catalog', 'catalogPickPlan'); }
   if (tab === 'customers')     loadCustomers();
   if (tab === 'report')        loadReport();
   if (tab === 'settings')      loadProfiles();
@@ -4009,6 +4029,91 @@ async function deletePlan(planId, label) {
     if (data.error) { alert('❌ ' + data.error); return; }
     loadPlans();
   } catch (e) { alert(e.message); }
+}
+
+// ── Item Catalog (per-MCC suggestions) ──────────────────────────────
+// Resolves the active profile's MCC from its current location, then fills a
+// <select> with 50 items from that MCC. All fields remain editable after pick.
+let _activeProfileMcc = '';
+async function ensureProfileMcc() {
+  if (_activeProfileMcc) return _activeProfileMcc;
+  try {
+    const data = await fetch(`/api/profiles/${profilesData.activeId}/locations`).then(r => r.json());
+    const current = (data.locations || []).find(l => l.isActive) || (data.locations || [])[0];
+    _activeProfileMcc = (current?.mcc || '').toString();
+  } catch { _activeProfileMcc = ''; }
+  return _activeProfileMcc;
+}
+function invalidateProfileMccCache() { _activeProfileMcc = ''; }
+
+// Populate a <select id=selectId> with MCC-matched items.
+// onPick(item) fires when user chooses — to fill the form's name/price fields.
+async function populateItemCatalogSelect(selectId, onPickHandlerName) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const mcc = await ensureProfileMcc();
+  const items = (typeof getItemsForMcc === 'function') ? getItemsForMcc(mcc) : [];
+  if (!items.length) {
+    sel.innerHTML = `<option value="">— No catalog for MCC ${mcc || '?'} —</option>`;
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  const opts = items.map((it, idx) => `<option value="${idx}">${it.name} — $${it.price}</option>`);
+  sel.innerHTML = `<option value="">— Select from catalog (${items.length} items) —</option>` + opts.join('');
+  // Store the items on the select element for the pick handler
+  sel._catalogItems = items;
+  sel.onchange = function() {
+    const i = parseInt(this.value);
+    if (Number.isNaN(i)) return;
+    const item = this._catalogItems[i];
+    if (item && window[onPickHandlerName]) window[onPickHandlerName](item);
+    // Reset dropdown after pick so user can use it again
+    this.value = '';
+  };
+}
+
+// Handlers that fill specific forms from a picked catalog item ──────────
+function catalogPickPaymentLink(item) {
+  const amt = document.getElementById('l-amount');
+  const title = document.getElementById('l-title');
+  if (amt) amt.value = item.price;
+  if (title) title.value = item.name;
+}
+
+function catalogPickInvoice(item) {
+  // Fill the FIRST invoice item row; if empty, overwrite; else add new row first
+  const nameInputs = document.querySelectorAll('.inv-item-name');
+  const priceInputs = document.querySelectorAll('.inv-item-price');
+  const qtyInputs = document.querySelectorAll('.inv-item-qty');
+  // Find first row where name is empty
+  let idx = -1;
+  for (let i = 0; i < nameInputs.length; i++) {
+    if (!nameInputs[i].value.trim()) { idx = i; break; }
+  }
+  if (idx < 0) {
+    // All rows filled — add a new one then target it
+    if (typeof addInvItem === 'function') addInvItem();
+    const newNames = document.querySelectorAll('.inv-item-name');
+    const newPrices = document.querySelectorAll('.inv-item-price');
+    const newQtys = document.querySelectorAll('.inv-item-qty');
+    idx = newNames.length - 1;
+    newNames[idx].value = item.name;
+    newPrices[idx].value = item.price;
+    if (!newQtys[idx].value) newQtys[idx].value = 1;
+  } else {
+    nameInputs[idx].value = item.name;
+    priceInputs[idx].value = item.price;
+    if (!qtyInputs[idx].value) qtyInputs[idx].value = 1;
+  }
+  if (typeof updateInvTotal === 'function') updateInvTotal();
+}
+
+function catalogPickPlan(item) {
+  const name = document.getElementById('plan-name');
+  const amount = document.getElementById('plan-amount');
+  if (name) name.value = item.name;
+  if (amount) amount.value = item.price;
 }
 
 // Common US IANA timezones for the scheduler dropdown. Each entry: [value, label]
