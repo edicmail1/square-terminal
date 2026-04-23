@@ -2227,6 +2227,14 @@ async function runScheduledSubscription(row) {
       return { error: msg };
     }
     const subId = r.body.subscription?.id;
+    // If this is an extension, stamp customer_note on both subs AFTER creation
+    if (payload._isExtension && payload._sourceSubId && subId) {
+      try {
+        const accessToken = getDecryptedToken(profile);
+        _currentProxy = profile.proxy_url || '';
+        await applyExtensionNotes(accessToken, payload._sourceSubId, subId, payload._sourceCustomerNote || '');
+      } catch (_) {}
+    }
     dbRun(`UPDATE scheduled_subscriptions SET status='fired', result_sub_id=?, error=NULL, updated_at=datetime('now') WHERE id=?`,
       [subId, row.id]);
     dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
@@ -2345,24 +2353,27 @@ app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
 });
 
 // Extend an existing subscription — creates a NEW subscription that starts
-// the day after the current one's charged_through_date. Chains them logically
-// by writing parent/child IDs into customer_note of both.
+// the day after the current one's charged_through_date. Chains them by
+// writing [Extension of <srcId>] / [Extended by <newId>] into the
+// customer_note via an UpdateSubscription call AFTER creation
+// (CreateSubscription doesn't accept customer_note — only UpdateSubscription does).
+// Supports optional scheduling: fireDate + fireTime + timezone → queued into scheduled_subscriptions.
 app.post('/api/profiles/:id/subscriptions/:subId/extend', requireAuth, async (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { periods } = req.body || {};
+  const { periods, fireDate, fireTime, timezone } = req.body || {};
   const n = parseInt(periods);
   if (!n || n <= 0) return res.status(400).json({ error: 'periods must be a positive integer' });
 
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
 
-  // Fetch the source subscription to copy customer, plan, card
+  // Fetch source sub to compute start date & copy fields
   const srcRes = await squareGet(accessToken, `/v2/subscriptions/${req.params.subId}`);
   if (srcRes.status !== 200) return res.status(srcRes.status).json({ error: srcRes.body?.errors?.[0]?.detail || 'Source subscription not found' });
   const src = srcRes.body.subscription;
 
-  // Start date: day after the source's charged_through_date; fallback to tomorrow
+  // Start date: day after charged_through_date; fallback to tomorrow
   let startDate;
   if (src.charged_through_date) {
     const d = new Date(src.charged_through_date + 'T00:00:00Z');
@@ -2373,64 +2384,70 @@ app.post('/api/profiles/:id/subscriptions/:subId/extend', requireAuth, async (re
     startDate = d.toISOString().slice(0, 10);
   }
 
-  // Inspect plan to know pricing type
-  const varRes = await squareGet(accessToken, `/v2/catalog/object/${src.plan_variation_id}?include_related_objects=true`);
-  const varData = varRes.body?.object?.subscription_plan_variation_data;
-  const phase = varData?.phases?.[0];
-  const isRelative = phase?.pricing?.type === 'RELATIVE';
+  // Resolve customer name + plan label for the log/list UI
+  let customerName = '';
+  try {
+    const cr = await squareGet(accessToken, `/v2/customers/${src.customer_id}`);
+    if (cr.status === 200) customerName = [cr.body.customer.given_name, cr.body.customer.family_name].filter(Boolean).join(' ');
+  } catch {}
+  let planLabel = '';
+  try {
+    const varObj = await squareGet(accessToken, `/v2/catalog/object/${src.plan_variation_id}`);
+    planLabel = (varObj.body?.object?.subscription_plan_variation_data?.name || 'plan') + ` ×${n} (extension)`;
+  } catch {}
 
-  // Build new subscription body
-  const body = {
-    idempotency_key: crypto.randomUUID(),
-    location_id: profile.location_id,
-    customer_id: src.customer_id,
-    plan_variation_id: src.plan_variation_id,
-    start_date: startDate,
+  const payload = {
+    customerId: src.customer_id,
+    planVariationId: src.plan_variation_id,
+    cardId: src.card_id || null,
+    startDate,
+    priceOverride: src.price_override_money ? (Number(src.price_override_money.amount) / 100).toString() : null,
+    periods: n,
+    _isExtension: true,
+    _sourceSubId: req.params.subId,
+    _sourceCustomerNote: src.customer_note || '',
   };
-  if (src.card_id) body.card_id = src.card_id;
-  if (src.price_override_money) body.price_override_money = src.price_override_money;
-  // Mark the new subscription as an extension in a note
-  body.customer_note = `[Extension of ${req.params.subId}]` + (src.customer_note ? ' ' + src.customer_note : '');
 
-  // For RELATIVE, we need a DRAFT order template on the new sub too
-  if (isRelative && varData?.subscription_plan_id) {
-    const planObj = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
-    const eligibleItemIds = planObj.body?.object?.subscription_plan_data?.eligible_item_ids || [];
-    if (eligibleItemIds.length > 0) {
-      const itemObj = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
-      const itemVarId = itemObj.body?.object?.item_data?.variations?.[0]?.id;
-      if (itemVarId) {
-        const orderRes = await squarePost(accessToken, '/v2/orders', {
-          order: {
-            location_id: profile.location_id,
-            state: 'DRAFT',
-            line_items: [{ quantity: '1', catalog_object_id: itemVarId }],
-          },
-          idempotency_key: crypto.randomUUID(),
-        });
-        if (orderRes.status === 200) {
-          body.phases = [{ ordinal: 0, order_template_id: orderRes.body.order.id, periods: n }];
-        }
-      }
+  // If scheduling requested, store in scheduled_subscriptions and exit
+  if (fireDate && fireTime && timezone) {
+    let fireAtISO;
+    try { fireAtISO = localToUTC(fireDate, fireTime, timezone); }
+    catch (e) { return res.status(400).json({ error: 'Bad fireDate/fireTime/timezone: ' + e.message }); }
+    if (new Date(fireAtISO).getTime() - Date.now() > 60 * 1000) {
+      const result = dbGet(
+        `INSERT INTO scheduled_subscriptions (profile_id, payload, fire_at, timezone, local_time, customer_id, customer_name, plan_variation_id, plan_label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        [profile.id, JSON.stringify(payload), fireAtISO, timezone, `${fireDate} ${fireTime}`,
+         src.customer_id, customerName, src.plan_variation_id, planLabel]
+      );
+      return res.json({ scheduled: true, id: result.id, fireAt: fireAtISO, localTime: `${fireDate} ${fireTime}`, timezone });
     }
-  } else {
-    body.phases = [{ ordinal: 0, periods: n }];
   }
 
-  const r = await squarePost(accessToken, '/v2/subscriptions', body);
+  // Immediate path
+  const r = await squareCreateSubscription(profile, payload);
   if (r.status !== 200) return res.status(r.status).json({ error: r.body?.errors?.[0]?.detail || 'Failed to create extension', debug: r.body });
+  const newSub = r.body.subscription;
+  await applyExtensionNotes(accessToken, req.params.subId, newSub.id, src.customer_note);
+  res.json({ success: true, extension: newSub, startDate, periods: n });
+});
 
-  // Also mark the source subscription's customer_note with a pointer to the extension
+// Stamp the extension link into customer_note on BOTH subs via UpdateSubscription.
+// Non-fatal: if one fails, the other may still go through.
+async function applyExtensionNotes(accessToken, srcSubId, newSubId, srcPrevNote) {
+  const newNote = `[Extension of ${srcSubId}]` + (srcPrevNote ? ' ' + srcPrevNote : '');
+  const srcNote = `[Extended by ${newSubId}]` + (srcPrevNote ? ' ' + srcPrevNote : '');
   try {
-    const newId = r.body.subscription.id;
-    const newNote = `[Extended by ${newId}]` + (src.customer_note ? ' ' + src.customer_note : '');
-    await squareRequest('PUT', accessToken, `/v2/subscriptions/${req.params.subId}`, {
+    await squareRequest('PUT', accessToken, `/v2/subscriptions/${newSubId}`, {
       subscription: { customer_note: newNote },
     });
-  } catch (_) { /* non-fatal */ }
-
-  res.json({ success: true, extension: r.body.subscription, startDate, periods: n });
-});
+  } catch (_) {}
+  try {
+    await squareRequest('PUT', accessToken, `/v2/subscriptions/${srcSubId}`, {
+      subscription: { customer_note: srcNote },
+    });
+  } catch (_) {}
+}
 
 // List/search subscriptions
 app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {

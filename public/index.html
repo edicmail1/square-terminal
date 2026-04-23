@@ -887,6 +887,26 @@
           <input type="number" id="extend-sub-periods" placeholder="напр. 2" min="1" max="999" oninput="updateExtendPreview()" />
         </div>
 
+        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+          <label style="font-size:12px;color:#0369a1;display:flex;gap:6px;align-items:center;cursor:pointer;margin-bottom:6px;">
+            <input type="checkbox" id="extend-sub-schedule" onchange="onExtendScheduleToggle()" />
+            🕐 Отложить создание продления до конкретного времени
+          </label>
+          <div id="extend-sub-schedule-details" style="display:none;">
+            <div class="row" style="gap:6px;">
+              <div class="field" style="flex:1;margin-bottom:4px;">
+                <label style="font-size:11px;">Дата запуска</label>
+                <input type="date" id="extend-sub-fire-date" onchange="updateExtendFireHint()" />
+              </div>
+              <div class="field" style="flex:1;margin-bottom:4px;">
+                <label style="font-size:11px;">Время</label>
+                <input type="time" id="extend-sub-fire-time" value="10:00" onchange="updateExtendFireHint()" />
+              </div>
+            </div>
+            <div id="extend-sub-fire-hint" style="font-size:11px;color:#0369a1;margin-top:4px;"></div>
+          </div>
+        </div>
+
         <div id="extend-sub-preview" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-size:12px;color:#065f46;margin-bottom:12px;display:none;"></div>
         <div id="extend-sub-result" class="result" style="margin-bottom:8px;"></div>
 
@@ -4503,6 +4523,13 @@ function openExtendSubscription(s) {
   document.getElementById('extend-sub-preview').style.display = 'none';
   document.getElementById('extend-sub-result').style.display = 'none';
   document.getElementById('extend-sub-result').innerHTML = '';
+  // Reset schedule checkbox
+  const cb = document.getElementById('extend-sub-schedule');
+  if (cb) {
+    cb.checked = false;
+    document.getElementById('extend-sub-schedule-details').style.display = 'none';
+    document.getElementById('extend-sub-fire-hint').textContent = '';
+  }
 
   const cadence = (s.cadence || '').toLowerCase().replace(/_/g, ' ') || 'period';
   const price = s.pricePerCharge || s.priceOverride || '—';
@@ -4574,11 +4601,26 @@ async function doExtendSubscription() {
   resultEl.className = 'result info';
   resultEl.innerHTML = 'Создаю продление...';
   resultEl.style.display = 'block';
+  // Check scheduling
+  const scheduleCb = document.getElementById('extend-sub-schedule');
+  const body = { periods };
+  if (scheduleCb?.checked) {
+    const fd = document.getElementById('extend-sub-fire-date').value;
+    const ft = document.getElementById('extend-sub-fire-time').value;
+    if (!fd || !ft) {
+      resultEl.className = 'result error';
+      resultEl.innerHTML = 'Укажи дату и время запуска';
+      return;
+    }
+    body.fireDate = fd;
+    body.fireTime = ft;
+    body.timezone = await ensureProfileTimezone();
+  }
   try {
     const r = await fetch(`/api/profiles/${profilesData.activeId}/subscriptions/${id}/extend`, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ periods }),
+      body: JSON.stringify(body),
     });
     const data = await r.json();
     if (data.error) {
@@ -4587,13 +4629,50 @@ async function doExtendSubscription() {
       return;
     }
     resultEl.className = 'result success';
-    resultEl.innerHTML = `✅ Продление создано! Новая подписка стартует ${data.startDate}, будет ${data.periods} списаний.`;
-    loadSubscriptionsList();
-    setTimeout(closeExtendSubscription, 1500);
+    if (data.scheduled) {
+      resultEl.innerHTML = `🕐 Продление запланировано: ${data.localTime} (${data.timezone}). Крон создаст подписку в этот момент.`;
+      loadScheduledSubscriptionsList();
+    } else {
+      resultEl.innerHTML = `✅ Продление создано! Новая подписка стартует ${data.startDate}, будет ${data.periods} списаний.`;
+      loadSubscriptionsList();
+    }
+    setTimeout(closeExtendSubscription, 2000);
   } catch (e) {
     resultEl.className = 'result error';
     resultEl.innerHTML = 'Error: ' + e.message;
   }
+}
+
+async function onExtendScheduleToggle() {
+  const cb = document.getElementById('extend-sub-schedule');
+  const details = document.getElementById('extend-sub-schedule-details');
+  details.style.display = cb.checked ? 'block' : 'none';
+  if (cb.checked) {
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('extend-sub-fire-date').value = today;
+    await updateExtendFireHint();
+  } else {
+    document.getElementById('extend-sub-fire-hint').textContent = '';
+  }
+}
+
+async function updateExtendFireHint() {
+  const tz = await ensureProfileTimezone();
+  const d = document.getElementById('extend-sub-fire-date').value;
+  const t = document.getElementById('extend-sub-fire-time').value;
+  const hint = document.getElementById('extend-sub-fire-hint');
+  if (!d || !t) { hint.textContent = ''; return; }
+  let utcMs;
+  try { utcMs = localToUTCMs(d, t, tz); }
+  catch { hint.textContent = 'Bad date/time'; return; }
+  const now = Date.now();
+  const minutesUntil = Math.round((utcMs - now) / 60000);
+  let timing;
+  if (minutesUntil <= 0) timing = `⚡ в прошлом — сработает немедленно`;
+  else if (minutesUntil < 60) timing = `через ~${minutesUntil} мин`;
+  else if (minutesUntil < 1440) timing = `через ~${Math.round(minutesUntil / 60)} ч`;
+  else timing = `через ~${Math.round(minutesUntil / 1440)} дн`;
+  hint.innerHTML = `🕐 <strong>${d} ${t}</strong> в ${tz} (${timing})`;
 }
 
 async function refreshEditSub() {
