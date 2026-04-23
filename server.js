@@ -151,6 +151,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
+  CREATE TABLE IF NOT EXISTS scheduled_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    fire_at TEXT NOT NULL,
+    timezone TEXT,
+    local_time TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result_sub_id TEXT,
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    customer_id TEXT,
+    customer_name TEXT,
+    plan_variation_id TEXT,
+    plan_label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_sched_subs_fire ON scheduled_subscriptions(fire_at, status);
+  CREATE INDEX IF NOT EXISTS idx_sched_subs_profile ON scheduled_subscriptions(profile_id, status);
+
   CREATE TABLE IF NOT EXISTS subscription_link_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     profile_id TEXT NOT NULL,
@@ -2034,27 +2055,246 @@ app.delete('/api/profiles/:id/plans/:planId', requireAuth, async (req, res) => {
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
-// Create subscription
-app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
-  const profile = getProfileById(req.params.id);
-  if (!profile) return res.status(404).json({ error: 'Not found' });
-  const { customerId, planVariationId, cardId, startDate, priceOverride, periods } = req.body;
-  if (!customerId || !planVariationId) return res.status(400).json({ error: 'customerId and planVariationId required' });
+// ── Subscription scheduler ──────────────────────────────────────────────
+// Convert "YYYY-MM-DD HH:MM" in a given IANA timezone to a UTC ISO string.
+// Uses the offset-iteration trick — DST-safe for all IANA zones.
+function localToUTC(dateStr, timeStr, timezone) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const [h, mi] = timeStr.split(':').map(Number);
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  // How does that UTC moment look in the target TZ?
+  const fmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  const parts = fmt.format(new Date(guess));
+  // sv-SE → "YYYY-MM-DD HH:MM:SS"
+  const [dp, tp] = parts.split(' ');
+  const [ly, lmo, ld] = dp.split('-').map(Number);
+  const [lh, lmi] = tp.split(':').map(Number);
+  const localAsIfUTC = Date.UTC(ly, lmo - 1, ld, lh, lmi);
+  const offsetMs = guess - localAsIfUTC;
+  return new Date(guess + offsetMs).toISOString();
+}
+
+// Core subscription-creation worker, reusable by both the immediate and
+// scheduled-fire paths. Returns { status, body } mirroring Square's shape.
+async function squareCreateSubscription(profile, params) {
   const accessToken = getDecryptedToken(profile);
   _currentProxy = profile.proxy_url || '';
+  const { customerId, planVariationId, cardId, startDate, priceOverride, periods } = params;
 
-  // Check if plan variation uses RELATIVE pricing — if so, need to build phases with order template
   const varRes = await squareGet(accessToken, `/v2/catalog/object/${planVariationId}?include_related_objects=true`);
   const varData = varRes.body?.object?.subscription_plan_variation_data;
   const phase = varData?.phases?.[0];
   const isRelative = phase?.pricing?.type === 'RELATIVE';
   const planPeriods = phase?.periods || null;
 
-  // Caller-supplied periods only used when plan itself is flexible (no periods baked in)
   const resolvedPeriods = (periods !== undefined && periods !== null && periods !== '')
     ? (parseInt(periods) > 0 ? parseInt(periods) : null)
     : null;
-  const periodsToApply = planPeriods ? null /* plan already has fixed duration */ : resolvedPeriods;
+  const periodsToApply = planPeriods ? null : resolvedPeriods;
+
+  const body = {
+    idempotency_key: crypto.randomUUID(),
+    location_id: profile.location_id,
+    customer_id: customerId,
+    plan_variation_id: planVariationId,
+  };
+  if (cardId) body.card_id = cardId;
+  if (startDate) body.start_date = startDate;
+  if (priceOverride) body.price_override_money = { amount: Math.round(parseFloat(priceOverride) * 100), currency: 'USD' };
+
+  if (isRelative && varData?.subscription_plan_id) {
+    const planObj = await squareGet(accessToken, `/v2/catalog/object/${varData.subscription_plan_id}`);
+    const eligibleItemIds = planObj.body?.object?.subscription_plan_data?.eligible_item_ids || [];
+    if (eligibleItemIds.length > 0) {
+      const itemObj = await squareGet(accessToken, `/v2/catalog/object/${eligibleItemIds[0]}`);
+      const itemVarId = itemObj.body?.object?.item_data?.variations?.[0]?.id;
+      if (itemVarId) {
+        const orderRes = await squarePost(accessToken, '/v2/orders', {
+          order: { location_id: profile.location_id, state: 'DRAFT',
+            line_items: [{ quantity: '1', catalog_object_id: itemVarId }] },
+          idempotency_key: crypto.randomUUID(),
+        });
+        if (orderRes.status === 200) {
+          const subPhase = { ordinal: 0, order_template_id: orderRes.body.order.id };
+          if (periodsToApply) subPhase.periods = periodsToApply;
+          body.phases = [subPhase];
+        }
+      }
+    }
+  } else if (periodsToApply) {
+    body.phases = [{ ordinal: 0, periods: periodsToApply }];
+  }
+
+  return await squarePost(accessToken, '/v2/subscriptions', body);
+}
+
+// Schedule a subscription — payload is validated the same way, then stored
+app.post('/api/profiles/:id/subscriptions/schedule', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { customerId, planVariationId, cardId, startDate, priceOverride, periods,
+          fireDate, fireTime, timezone, customerName, planLabel } = req.body || {};
+  if (!customerId || !planVariationId) return res.status(400).json({ error: 'customerId and planVariationId required' });
+  if (!fireDate || !fireTime || !timezone) return res.status(400).json({ error: 'fireDate, fireTime, timezone required' });
+
+  let fireAtISO;
+  try { fireAtISO = localToUTC(fireDate, fireTime, timezone); }
+  catch (e) { return res.status(400).json({ error: 'Bad fireDate/fireTime/timezone: ' + e.message }); }
+
+  const payload = { customerId, planVariationId, cardId, startDate, priceOverride, periods };
+  const result = dbGet(
+    `INSERT INTO scheduled_subscriptions (profile_id, payload, fire_at, timezone, local_time, customer_id, customer_name, plan_variation_id, plan_label)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    [profile.id, JSON.stringify(payload), fireAtISO, timezone, `${fireDate} ${fireTime}`,
+     customerId, customerName || '', planVariationId, planLabel || '']
+  );
+  res.json({ success: true, id: result.id, fireAt: fireAtISO, localTime: `${fireDate} ${fireTime}`, timezone });
+});
+
+// List scheduled subscriptions for a profile
+app.get('/api/profiles/:id/scheduled-subscriptions', requireAuth, (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const rows = dbAll(
+    `SELECT id, fire_at, timezone, local_time, status, result_sub_id, error, attempts,
+            customer_id, customer_name, plan_variation_id, plan_label, created_at
+     FROM scheduled_subscriptions WHERE profile_id = ? ORDER BY fire_at ASC`,
+    [profile.id]
+  );
+  res.json({ scheduled: rows });
+});
+
+// Cancel a pending scheduled subscription
+app.delete('/api/profiles/:id/scheduled-subscriptions/:sid', requireAuth, (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const row = dbGet(`SELECT * FROM scheduled_subscriptions WHERE id = ? AND profile_id = ?`,
+    [req.params.sid, profile.id]);
+  if (!row) return res.status(404).json({ error: 'Scheduled subscription not found' });
+  if (row.status !== 'pending') return res.status(400).json({ error: `Already ${row.status} — cannot cancel` });
+  dbRun(`UPDATE scheduled_subscriptions SET status = 'canceled', updated_at = datetime('now') WHERE id = ?`, [row.id]);
+  res.json({ success: true });
+});
+
+// Fire a scheduled subscription NOW (ignore fire_at)
+app.post('/api/profiles/:id/scheduled-subscriptions/:sid/fire-now', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const row = dbGet(`SELECT * FROM scheduled_subscriptions WHERE id = ? AND profile_id = ?`,
+    [req.params.sid, profile.id]);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'pending') return res.status(400).json({ error: `Already ${row.status}` });
+  const outcome = await runScheduledSubscription(row);
+  if (outcome.error) return res.status(400).json({ error: outcome.error });
+  res.json({ success: true, subscriptionId: outcome.subscriptionId });
+});
+
+// Single execution step (used by cron + fire-now)
+async function runScheduledSubscription(row) {
+  const profile = getProfileById(row.profile_id);
+  if (!profile) {
+    dbRun(`UPDATE scheduled_subscriptions SET status='failed', error=?, updated_at=datetime('now') WHERE id=?`,
+      ['Profile missing', row.id]);
+    return { error: 'Profile missing' };
+  }
+  let payload;
+  try { payload = JSON.parse(row.payload); }
+  catch {
+    dbRun(`UPDATE scheduled_subscriptions SET status='failed', error=?, updated_at=datetime('now') WHERE id=?`,
+      ['Bad payload JSON', row.id]);
+    return { error: 'Bad payload JSON' };
+  }
+  dbRun(`UPDATE scheduled_subscriptions SET attempts = attempts + 1, updated_at=datetime('now') WHERE id=?`, [row.id]);
+  try {
+    const r = await squareCreateSubscription(profile, payload);
+    if (r.status !== 200) {
+      const msg = r.body?.errors?.[0]?.detail || 'Square error';
+      // If retryable (network/502), leave as pending; otherwise fail
+      const retryable = r.status >= 500 || r.proxyError;
+      const newAttempts = row.attempts + 1;
+      if (retryable && newAttempts < 5) {
+        dbRun(`UPDATE scheduled_subscriptions SET error=?, updated_at=datetime('now') WHERE id=?`,
+          [msg + ' (will retry)', row.id]);
+      } else {
+        dbRun(`UPDATE scheduled_subscriptions SET status='failed', error=?, updated_at=datetime('now') WHERE id=?`,
+          [msg, row.id]);
+      }
+      dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+        ['sub_schedule_failed', `⚠️ Scheduled subscription failed`, `${profile.name} · ${row.customer_name || row.customer_id}: ${msg}`]);
+      return { error: msg };
+    }
+    const subId = r.body.subscription?.id;
+    dbRun(`UPDATE scheduled_subscriptions SET status='fired', result_sub_id=?, error=NULL, updated_at=datetime('now') WHERE id=?`,
+      [subId, row.id]);
+    dbRun("INSERT INTO notifications (type, title, detail) VALUES (?, ?, ?)",
+      ['sub_schedule_fired', `✅ Scheduled subscription created`, `${profile.name} · ${row.customer_name || row.customer_id} · ${row.plan_label || ''}`]);
+    return { subscriptionId: subId };
+  } catch (e) {
+    dbRun(`UPDATE scheduled_subscriptions SET status='failed', error=?, updated_at=datetime('now') WHERE id=?`,
+      [e.message, row.id]);
+    return { error: e.message };
+  }
+}
+
+// Cron: every minute scan for due scheduled subs
+async function runDueSchedules() {
+  try {
+    const nowIso = new Date().toISOString();
+    const due = dbAll(
+      `SELECT * FROM scheduled_subscriptions WHERE status='pending' AND fire_at <= ? ORDER BY fire_at ASC LIMIT 20`,
+      [nowIso]
+    );
+    for (const row of due) {
+      try { await runScheduledSubscription(row); } catch (e) { console.error('[sched]', e.message); }
+    }
+  } catch (e) { console.error('[runDueSchedules]', e.message); }
+}
+setInterval(runDueSchedules, 60 * 1000);
+setTimeout(runDueSchedules, 10 * 1000); // prime once shortly after boot
+
+// Create subscription — immediate or scheduled
+app.post('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
+  const profile = getProfileById(req.params.id);
+  if (!profile) return res.status(404).json({ error: 'Not found' });
+  const { customerId, planVariationId, cardId, startDate, priceOverride, periods,
+          fireDate, fireTime, timezone, customerName, planLabel } = req.body;
+  if (!customerId || !planVariationId) return res.status(400).json({ error: 'customerId and planVariationId required' });
+
+  // If caller gave a fire time, compare to now — maybe schedule
+  if (fireDate && fireTime && timezone) {
+    let fireAtISO;
+    try { fireAtISO = localToUTC(fireDate, fireTime, timezone); }
+    catch (e) { return res.status(400).json({ error: 'Bad fireDate/fireTime/timezone: ' + e.message }); }
+    const fireAtMs = new Date(fireAtISO).getTime();
+    // If more than 60s in the future → schedule
+    if (fireAtMs - Date.now() > 60 * 1000) {
+      const payload = { customerId, planVariationId, cardId, startDate, priceOverride, periods };
+      const result = dbGet(
+        `INSERT INTO scheduled_subscriptions (profile_id, payload, fire_at, timezone, local_time, customer_id, customer_name, plan_variation_id, plan_label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        [profile.id, JSON.stringify(payload), fireAtISO, timezone, `${fireDate} ${fireTime}`,
+         customerId, customerName || '', planVariationId, planLabel || '']
+      );
+      return res.json({ scheduled: true, id: result.id, fireAt: fireAtISO, localTime: `${fireDate} ${fireTime}`, timezone });
+    }
+  }
+
+  // Otherwise fire immediately (existing path)
+  const accessToken = getDecryptedToken(profile);
+  _currentProxy = profile.proxy_url || '';
+  const varRes = await squareGet(accessToken, `/v2/catalog/object/${planVariationId}?include_related_objects=true`);
+  const varData = varRes.body?.object?.subscription_plan_variation_data;
+  const phase = varData?.phases?.[0];
+  const isRelative = phase?.pricing?.type === 'RELATIVE';
+  const planPeriods = phase?.periods || null;
+
+  const resolvedPeriods = (periods !== undefined && periods !== null && periods !== '')
+    ? (parseInt(periods) > 0 ? parseInt(periods) : null)
+    : null;
+  const periodsToApply = planPeriods ? null : resolvedPeriods;
 
   const body = {
     idempotency_key: crypto.randomUUID(),
