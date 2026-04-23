@@ -1465,6 +1465,7 @@
 
 <script src="mcc-codes.js"></script>
 <script src="item-catalog.js"></script>
+<script src="subscription-catalog.js"></script>
 <script>
 let card;
 let appId, locId;
@@ -2466,7 +2467,7 @@ function switchTab(tab) {
   if (tab === 'locations')     loadLocations();
   if (tab === 'payouts')       loadPayouts();
   if (tab === 'invoices')      { loadInvoices(); populateItemCatalogSelect('inv-catalog', 'catalogPickInvoice'); }
-  if (tab === 'subscriptions') { loadSubscriptions(); populateItemCatalogSelect('plan-catalog', 'catalogPickPlan'); }
+  if (tab === 'subscriptions') { loadSubscriptions(); populateItemCatalogSelect('plan-catalog', 'catalogPickPlan', 'subscription'); }
   if (tab === 'customers')     loadCustomers();
   if (tab === 'report')        loadReport();
   if (tab === 'settings')      loadProfiles();
@@ -4047,12 +4048,20 @@ async function ensureProfileMcc() {
 function invalidateProfileMccCache() { _activeProfileMcc = ''; }
 
 // Populate a <select id=selectId> with MCC-matched items.
-// onPick(item) fires when user chooses — to fill the form's name/price fields.
-async function populateItemCatalogSelect(selectId, onPickHandlerName) {
+// catalogType: 'items' (goods/services for Invoice/Link) or 'subscription' (daily plans)
+// Different businesses with same MCC see different names (hash from profile_id).
+async function populateItemCatalogSelect(selectId, onPickHandlerName, catalogType) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
   const mcc = await ensureProfileMcc();
-  const items = (typeof getItemsForMcc === 'function') ? getItemsForMcc(mcc) : [];
+  const profileId = profilesData?.activeId || 'default';
+  const catalogType2 = catalogType || 'items';
+  let items = [];
+  if (catalogType2 === 'subscription' && typeof getSubscriptionItemsForMcc === 'function') {
+    items = getSubscriptionItemsForMcc(mcc, profileId);
+  } else if (typeof getItemsForMcc === 'function') {
+    items = getItemsForMcc(mcc, profileId);
+  }
   if (!items.length) {
     sel.innerHTML = `<option value="">— No catalog for MCC ${mcc || '?'} —</option>`;
     sel.disabled = true;
@@ -4060,15 +4069,14 @@ async function populateItemCatalogSelect(selectId, onPickHandlerName) {
   }
   sel.disabled = false;
   const opts = items.map((it, idx) => `<option value="${idx}">${it.name} — $${it.price}</option>`);
-  sel.innerHTML = `<option value="">— Select from catalog (${items.length} items) —</option>` + opts.join('');
-  // Store the items on the select element for the pick handler
+  const catLabel = catalogType2 === 'subscription' ? 'subscription plans' : 'items';
+  sel.innerHTML = `<option value="">— Select from catalog (${items.length} ${catLabel}) —</option>` + opts.join('');
   sel._catalogItems = items;
   sel.onchange = function() {
     const i = parseInt(this.value);
     if (Number.isNaN(i)) return;
     const item = this._catalogItems[i];
     if (item && window[onPickHandlerName]) window[onPickHandlerName](item);
-    // Reset dropdown after pick so user can use it again
     this.value = '';
   };
 }
