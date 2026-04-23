@@ -2420,6 +2420,11 @@ app.post('/api/profiles/:id/subscriptions/:subId/extend', requireAuth, async (re
     const d = new Date(Date.now() + 86400000);
     startDate = d.toISOString().slice(0, 10);
   }
+  // Clamp to tomorrow or later — Square rejects start_date in the past.
+  // If the original subscription already ended before today, a gap is
+  // unavoidable; we pick tomorrow as the earliest start to continue.
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  if (startDate < tomorrow) startDate = tomorrow;
 
   // Resolve customer name + plan label for the log/list UI
   let customerName = '';
