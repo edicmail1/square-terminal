@@ -2188,16 +2188,28 @@ app.get('/api/profiles/:id/scheduled-subscriptions', requireAuth, (req, res) => 
   res.json({ scheduled: rows });
 });
 
-// Cancel a pending scheduled subscription
+// Cancel/delete a scheduled subscription based on status:
+//   pending  → soft cancel (status = canceled, kept for history)
+//   failed   → hard delete (row removed, won't clutter the list)
+//   canceled → hard delete (already canceled, just remove)
+//   fired    → refuse (real subscription exists in Square, delete would lose audit)
 app.delete('/api/profiles/:id/scheduled-subscriptions/:sid', requireAuth, (req, res) => {
   const profile = getProfileById(req.params.id);
   if (!profile) return res.status(404).json({ error: 'Not found' });
   const row = dbGet(`SELECT * FROM scheduled_subscriptions WHERE id = ? AND profile_id = ?`,
     [req.params.sid, profile.id]);
   if (!row) return res.status(404).json({ error: 'Scheduled subscription not found' });
-  if (row.status !== 'pending') return res.status(400).json({ error: `Already ${row.status} — cannot cancel` });
-  dbRun(`UPDATE scheduled_subscriptions SET status = 'canceled', updated_at = datetime('now') WHERE id = ?`, [row.id]);
-  res.json({ success: true });
+
+  if (row.status === 'fired') {
+    return res.status(400).json({ error: 'Already fired — the subscription exists in Square. Cancel it from the Subscriptions list instead.' });
+  }
+  if (row.status === 'pending') {
+    dbRun(`UPDATE scheduled_subscriptions SET status = 'canceled', updated_at = datetime('now') WHERE id = ?`, [row.id]);
+    return res.json({ success: true, action: 'canceled' });
+  }
+  // failed or already canceled → hard delete
+  dbRun(`DELETE FROM scheduled_subscriptions WHERE id = ?`, [row.id]);
+  res.json({ success: true, action: 'deleted' });
 });
 
 // Fire a scheduled subscription NOW (ignore fire_at)
