@@ -2055,6 +2055,27 @@ app.delete('/api/profiles/:id/plans/:planId', requireAuth, async (req, res) => {
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
 
+// Advance a YYYY-MM-DD date by N cadence steps. Returns YYYY-MM-DD string.
+function addCadenceSteps(dateStr, cadence, steps) {
+  if (!dateStr || !steps) return dateStr;
+  const d = new Date(dateStr + 'T00:00:00Z');
+  switch (cadence) {
+    case 'DAILY':            d.setUTCDate(d.getUTCDate() + steps); break;
+    case 'WEEKLY':           d.setUTCDate(d.getUTCDate() + steps * 7); break;
+    case 'EVERY_TWO_WEEKS':  d.setUTCDate(d.getUTCDate() + steps * 14); break;
+    case 'THIRTY_DAYS':      d.setUTCDate(d.getUTCDate() + steps * 30); break;
+    case 'MONTHLY':          d.setUTCMonth(d.getUTCMonth() + steps); break;
+    case 'EVERY_TWO_MONTHS': d.setUTCMonth(d.getUTCMonth() + steps * 2); break;
+    case 'QUARTERLY':        d.setUTCMonth(d.getUTCMonth() + steps * 3); break;
+    case 'EVERY_FOUR_MONTHS':d.setUTCMonth(d.getUTCMonth() + steps * 4); break;
+    case 'EVERY_SIX_MONTHS': d.setUTCMonth(d.getUTCMonth() + steps * 6); break;
+    case 'ANNUAL':           d.setUTCFullYear(d.getUTCFullYear() + steps); break;
+    case 'EVERY_TWO_YEARS':  d.setUTCFullYear(d.getUTCFullYear() + steps * 2); break;
+    default:                 d.setUTCDate(d.getUTCDate() + steps); // safe fallback
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 // ── Subscription scheduler ──────────────────────────────────────────────
 // Convert "YYYY-MM-DD HH:MM" in a given IANA timezone to a UTC ISO string.
 // Uses the offset-iteration trick — DST-safe for all IANA zones.
@@ -2373,12 +2394,28 @@ app.post('/api/profiles/:id/subscriptions/:subId/extend', requireAuth, async (re
   if (srcRes.status !== 200) return res.status(srcRes.status).json({ error: srcRes.body?.errors?.[0]?.detail || 'Source subscription not found' });
   const src = srcRes.body.subscription;
 
-  // Start date: day after charged_through_date; fallback to tomorrow
+  // We need the source's cadence + periods to calculate when it actually ends.
+  // cadence lives on the plan variation's first phase; periods may be on sub's
+  // own phase (flexible plan) or on the plan phase (fixed plan).
+  const varResForCad = await squareGet(accessToken, `/v2/catalog/object/${src.plan_variation_id}?include_related_objects=true`);
+  const planVarData = varResForCad.body?.object?.subscription_plan_variation_data;
+  const planPhase = planVarData?.phases?.[0];
+  const cadence = planPhase?.cadence || 'DAILY';
+  const subPhasePeriods = src.phases?.[0]?.periods || null;
+  const planPeriodsBaked = planPhase?.periods || null;
+  const srcPeriods = subPhasePeriods || planPeriodsBaked || null;
+
+  // Compute start date of the extension:
+  //   • If source has a fixed length → extension starts the cadence-step AFTER
+  //     the source's last covered period (start + periods * step), preventing
+  //     overlap with still-running source.
+  //   • If source is open-ended → fall back to (charged_through_date OR tomorrow)
   let startDate;
-  if (src.charged_through_date) {
-    const d = new Date(src.charged_through_date + 'T00:00:00Z');
-    d.setUTCDate(d.getUTCDate() + 1);
-    startDate = d.toISOString().slice(0, 10);
+  if (src.start_date && srcPeriods) {
+    startDate = addCadenceSteps(src.start_date, cadence, srcPeriods);
+  } else if (src.charged_through_date) {
+    // Open-ended: charged_through is next charge date → extension after that
+    startDate = addCadenceSteps(src.charged_through_date, cadence, 1);
   } else {
     const d = new Date(Date.now() + 86400000);
     startDate = d.toISOString().slice(0, 10);
@@ -2557,6 +2594,13 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
     if (isFinished && s.status === 'ACTIVE') effectiveStatus = 'COMPLETED';
     if (s.status === 'DEACTIVATED') effectiveStatus = isFinished ? 'COMPLETED' : 'DEACTIVATED';
 
+    // Compute end date when periods are known. Last charge day = start + (periods-1) cadence steps.
+    const endDate = (s.start_date && totalPeriods && plan.cadence)
+      ? addCadenceSteps(s.start_date, plan.cadence, totalPeriods - 1)
+      : null;
+    // Next charge date: Square's charged_through_date IS the next charge date for active subs
+    const nextChargeDate = (!isFinished && s.status === 'ACTIVE') ? (s.charged_through_date || null) : null;
+
     return {
       id: s.id, status: s.status, effectiveStatus,
       customerId: s.customer_id, cardId: s.card_id,
@@ -2564,6 +2608,8 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       customerEmail: customerLookup[s.customer_id]?.email || '',
       planVariationId: s.plan_variation_id, startDate: s.start_date,
       chargedThroughDate: s.charged_through_date,
+      nextChargeDate,
+      endDate,
       canceledDate: s.canceled_date, createdAt: s.created_at,
       priceOverride: s.price_override_money ? (Number(s.price_override_money.amount) / 100).toFixed(2) : null,
       priceOverrideRaw: s.price_override_money || null,
@@ -2581,7 +2627,65 @@ app.get('/api/profiles/:id/subscriptions', requireAuth, async (req, res) => {
       isFinished: !!isFinished,
     };
   });
-  res.json({ subscriptions: subs });
+  // ── Consolidate extension chains ──────────────────────────────────────
+  // Link each [Extension of X] sub to its parent. Hide extensions from the list
+  // and attach summary into the parent as `extensions: [...]` + aggregated totals.
+  const byId = {};
+  for (const s of subs) byId[s.id] = s;
+  const extensionChildIds = new Set();
+
+  for (const s of subs) {
+    const note = s.customerNote || '';
+    const extMatch = note.match(/\[Extension of ([A-Z0-9-]+)\]/i);
+    if (extMatch) {
+      const parentId = extMatch[1];
+      if (byId[parentId]) {
+        extensionChildIds.add(s.id);
+        if (!byId[parentId].extensions) byId[parentId].extensions = [];
+        byId[parentId].extensions.push({
+          id: s.id,
+          status: s.status,
+          effectiveStatus: s.effectiveStatus,
+          startDate: s.startDate,
+          endDate: s.endDate,
+          nextChargeDate: s.nextChargeDate,
+          periods: s.periods,
+          chargesDone: s.chargesDone,
+          pricePerCharge: s.pricePerCharge,
+          chargedAmount: s.chargedAmount,
+          totalAmount: s.totalAmount,
+          isFinished: s.isFinished,
+        });
+      }
+    }
+  }
+
+  // Aggregate totals on parents that have extensions
+  for (const s of subs) {
+    if (!s.extensions || s.extensions.length === 0) continue;
+    // Sort extensions by startDate so UI order is chronological
+    s.extensions.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+    const allExtPeriods = s.extensions.reduce((acc, e) => acc + (Number(e.periods) || 0), 0);
+    const allExtChargesDone = s.extensions.reduce((acc, e) => acc + (Number(e.chargesDone) || 0), 0);
+    const allExtAmount = s.extensions.reduce((acc, e) => acc + (parseFloat(e.chargedAmount) || 0), 0);
+    const allExtTotalAmount = s.extensions.reduce((acc, e) => acc + (parseFloat(e.totalAmount) || 0), 0);
+    s.combinedPeriods = (Number(s.periods) || 0) + allExtPeriods;
+    s.combinedChargesDone = (Number(s.chargesDone) || 0) + allExtChargesDone;
+    s.combinedChargedAmount = ((parseFloat(s.chargedAmount) || 0) + allExtAmount).toFixed(2);
+    s.combinedTotalAmount = ((parseFloat(s.totalAmount) || 0) + allExtTotalAmount).toFixed(2);
+    // The "real" end date is the last extension's end date
+    s.combinedEndDate = s.extensions[s.extensions.length - 1]?.endDate || s.endDate;
+    // Next charge date — prefer the earliest still-live child's next charge, else parent's
+    const liveExts = s.extensions.filter(e => e.status === 'ACTIVE' && !e.isFinished);
+    if (liveExts.length > 0) s.combinedNextChargeDate = liveExts[0].nextChargeDate || null;
+    else s.combinedNextChargeDate = s.nextChargeDate || null;
+    // Mark parent as "EXTENDED" for badge display
+    s.hasExtensions = true;
+  }
+
+  // Filter out child extension subs from the top-level list
+  const topLevel = subs.filter(s => !extensionChildIds.has(s.id));
+  res.json({ subscriptions: topLevel });
 });
 
 // Pause subscription
