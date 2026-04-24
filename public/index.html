@@ -4475,11 +4475,10 @@ async function cancelSubscription(id) {
   if (!confirm('Отменить подписку НЕМЕДЛЕННО?\n\nЭто необратимо. Дальнейшие списания прекратятся сразу.')) return;
   const activeId = profilesData.activeId;
   try {
-    // Try cancelling today first (immediate). Square may require a future date —
-    // if so, fall back to the earliest date it accepts (tomorrow).
     const today    = new Date().toISOString().slice(0, 10);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
+    // Strategy 1: schedule CANCEL for today (immediate)
     let r = await fetch(`/api/profiles/${activeId}/subscriptions/${id}/schedule-action`, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -4487,7 +4486,7 @@ async function cancelSubscription(id) {
     });
     let data = await r.json();
 
-    // If Square insists on a future date, try tomorrow
+    // Strategy 2: if Square rejects today as past, use tomorrow
     if (data.error && /future|effective_date|past/i.test(data.error)) {
       r = await fetch(`/api/profiles/${activeId}/subscriptions/${id}/schedule-action`, {
         method: 'POST', credentials: 'include',
@@ -4499,6 +4498,29 @@ async function cancelSubscription(id) {
         alert(`🔴 Отмена на ${tomorrow} (Square не даёт отменить сегодняшней датой). Подписка отработает сегодня последний раз.`);
         loadSubscriptionsList();
         return;
+      }
+    }
+
+    // Strategy 3: 404 Resource not found → sub may be in state Square's schedule-action
+    // doesn't accept (e.g. already completed all periods). Try the native /cancel endpoint.
+    if (data.error && /not found|resource/i.test(data.error)) {
+      r = await fetch(`/api/profiles/${activeId}/subscriptions/${id}/cancel`, {
+        method: 'POST', credentials: 'include',
+      });
+      const ct = r.headers.get('content-type') || '';
+      if (ct.includes('json')) {
+        data = await r.json();
+        if (!data.error) {
+          alert('🔴 Подписка отменена (через прямой /cancel endpoint).');
+          loadSubscriptionsList();
+          return;
+        }
+        // If native /cancel also returns 404, the subscription is gone from Square's perspective
+        if (/not found|resource/i.test(data.error)) {
+          alert('⚠️ Подписка уже не активна в Square (возможно отработала все периоды или была отменена ранее). Обновляю список.');
+          loadSubscriptionsList();
+          return;
+        }
       }
     }
 
